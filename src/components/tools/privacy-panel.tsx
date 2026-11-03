@@ -1,0 +1,127 @@
+"use client";
+
+import { Calendar, LoaderCircle, MapPin, ShieldCheck, Smartphone, User } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { CheckboxField } from "@/components/ui/field";
+import type { ImageMetadataReport } from "@/lib/image/metadata";
+import { inspectImage } from "@/lib/image/tasks";
+import { cn } from "@/lib/utils";
+import type { InputItem } from "../workspace/types";
+import type { PrivacySettings } from "./settings";
+
+interface PrivacyPanelProps {
+  items: InputItem[];
+  settings: PrivacySettings;
+  onChange: (settings: PrivacySettings) => void;
+  onStart: () => void;
+}
+
+type ScanState = Record<string, ImageMetadataReport | "loading" | "error">;
+
+function Badge({ active, icon: Icon, label }: { active: boolean; icon: typeof MapPin; label: string }) {
+  if (!active) return null;
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", label === "Standort" ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning")}>
+      <Icon className="size-3" aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+export function PrivacyPanel({ items, settings, onChange, onStart }: PrivacyPanelProps) {
+  const [scans, setScans] = useState<ScanState>({});
+  const images = items.filter((item) => item.type.kind === "image");
+  const media = items.filter((item) => item.type.kind !== "image");
+
+  const requested = useRef(new Set<string>());
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // Scan images in the worker right away so users see what would be shared.
+  useEffect(() => {
+    for (const item of images) {
+      if (requested.current.has(item.id)) continue;
+      requested.current.add(item.id);
+      setScans((current) => ({ ...current, [item.id]: "loading" }));
+      inspectImage(item.file, item.type)
+        .then((report) => mounted.current && setScans((current) => ({ ...current, [item.id]: report })))
+        .catch(() => mounted.current && setScans((current) => ({ ...current, [item.id]: "error" })));
+    }
+  }, [images]);
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted-foreground">
+        Fotos und Videos verraten oft mehr als gedacht: <strong className="text-foreground">GPS-Koordinaten</strong> deines
+        Zuhauses, <strong className="text-foreground">Kamera- & Handymodell</strong>, Seriennummern, Aufnahmezeit und Software.
+        SnapMedia entfernt diese Daten vor dem Teilen – bei JPG, PNG, WebP und GIF sogar{" "}
+        <strong className="text-foreground">ohne Qualitätsverlust</strong>.
+      </p>
+
+      {images.length > 0 && (
+        <ul className="divide-y divide-border rounded-xl border border-border bg-card" data-testid="privacy-scan">
+          {images.map((item) => {
+            const scan = scans[item.id];
+            const report = typeof scan === "object" ? scan : null;
+            const device = report?.findings.some((f) => f.category === "device") ?? false;
+            const date = report?.findings.some((f) => f.category === "datetime") ?? false;
+            const author = report?.findings.some((f) => f.category === "author") ?? false;
+            const clean = report && report.findings.length === 0 && !report.hasXmp;
+            return (
+              <li key={item.id} className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-1 truncate" title={item.file.name}>
+                  {item.file.name}
+                </span>
+                {scan === "loading" && <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-label="Wird geprüft" />}
+                {scan === "error" && <span className="text-xs text-muted-foreground">nicht lesbar</span>}
+                {report && (
+                  <span className="flex flex-wrap gap-1">
+                    <Badge active={report.hasGps} icon={MapPin} label="Standort" />
+                    <Badge active={device} icon={Smartphone} label="Gerät" />
+                    <Badge active={date} icon={Calendar} label="Datum" />
+                    <Badge active={author} icon={User} label="Person" />
+                    {clean && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-success-soft px-1.5 py-0.5 text-[11px] font-medium text-success">
+                        <ShieldCheck className="size-3" aria-hidden /> sauber
+                      </span>
+                    )}
+                    {!clean && !report.hasGps && !device && !date && !author && (
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        {report.findings.length || 1} Metadaten-Einträge
+                      </span>
+                    )}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {media.length > 0 && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          {media.length} Video-/Audiodatei(en): Standort (z. B. aus iPhone-Videos), Gerät, Datum, Titel & Kommentare werden ohne
+          Neukodierung entfernt – Bild und Ton bleiben unverändert.
+        </p>
+      )}
+
+      <CheckboxField
+        label="Farbprofil (ICC) behalten"
+        description="Empfohlen: sorgt für korrekte Farben und enthält keine persönlichen Daten."
+        checked={settings.keepIcc}
+        onChange={(keepIcc) => onChange({ ...settings, keepIcc })}
+      />
+
+      <Button size="lg" className="w-full sm:w-auto" onClick={onStart} data-testid="start-privacy">
+        <ShieldCheck className="size-5" aria-hidden />
+        {items.length === 1 ? "Metadaten entfernen" : `Metadaten aus ${items.length} Dateien entfernen`}
+      </Button>
+    </div>
+  );
+}
