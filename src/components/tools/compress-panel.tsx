@@ -4,7 +4,8 @@ import { Gauge, Mail, MessageCircle, Shrink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/field";
 import { Segmented } from "@/components/ui/segmented";
-import { COMPRESS_PRESETS, SPEED_PRESETS, type CompressPresetId, type SpeedPreset } from "@/lib/presets";
+import { useI18n } from "@/i18n/provider";
+import { COMPRESS_PRESETS, type CompressPresetId, type SpeedPreset } from "@/lib/presets";
 import { cn } from "@/lib/utils";
 import type { InputItem } from "../workspace/types";
 import type { CompressSettings } from "./settings";
@@ -15,6 +16,8 @@ const PRESET_ICONS: Record<CompressPresetId, typeof Gauge> = {
   web: Gauge,
 };
 
+const SPEEDS: SpeedPreset[] = ["fast", "balanced", "quality"];
+
 interface CompressPanelProps {
   items: InputItem[];
   settings: CompressSettings;
@@ -23,6 +26,7 @@ interface CompressPanelProps {
 }
 
 export function CompressPanel({ items, settings, onChange, onStart }: CompressPanelProps) {
+  const { t } = useI18n();
   const hasImages = items.some((item) => item.type.kind === "image");
   const hasVideos = items.some((item) => item.type.kind === "video");
   const hasAudio = items.some((item) => item.type.kind === "audio");
@@ -30,10 +34,11 @@ export function CompressPanel({ items, settings, onChange, onStart }: CompressPa
   return (
     <div className="space-y-5">
       <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">Schnell-Preset</legend>
+        <legend className="text-sm font-medium">{t.compress.presetLegend}</legend>
         <div className="grid gap-2 md:grid-cols-3">
           {COMPRESS_PRESETS.map((preset) => {
             const Icon = PRESET_ICONS[preset.id];
+            const text = t.compress.presets[preset.id];
             const active = settings.preset === preset.id;
             return (
               <label
@@ -54,8 +59,8 @@ export function CompressPanel({ items, settings, onChange, onStart }: CompressPa
                 />
                 <Icon className={cn("mt-0.5 size-5 shrink-0", active ? "text-primary" : "text-muted-foreground")} aria-hidden />
                 <span>
-                  <span className="block text-sm font-semibold">{preset.label}</span>
-                  <span className="block text-xs text-muted-foreground">{preset.description}</span>
+                  <span className="block text-sm font-semibold">{text.label}</span>
+                  <span className="block text-xs text-muted-foreground">{text.description}</span>
                 </span>
               </label>
             );
@@ -66,39 +71,37 @@ export function CompressPanel({ items, settings, onChange, onStart }: CompressPa
       <div className="grid gap-4 md:grid-cols-2">
         {hasImages && (
           <SelectField
-            label="Bild-Ausgabeformat"
+            label={t.compress.imageFormat}
             value={settings.imageFormat}
             onChange={(imageFormat) => onChange({ ...settings, imageFormat })}
             options={[
-              { value: "auto", label: settings.preset === "web" ? "Automatisch (WebP)" : "Automatisch (Format beibehalten)" },
-              { value: "jpeg", label: "JPG – überall kompatibel" },
-              { value: "webp", label: "WebP – kleiner bei gleicher Qualität" },
-              { value: "png", label: "PNG – mit Transparenz" },
+              { value: "auto", label: settings.preset === "web" ? t.compress.formatAutoWeb : t.compress.formatAutoKeep },
+              { value: "jpeg", label: t.compress.formatJpeg },
+              { value: "webp", label: t.compress.formatWebp },
+              { value: "png", label: t.compress.formatPng },
             ]}
-            hint="HEIC, AVIF & TIFF werden automatisch als JPG gespeichert. Metadaten werden dabei entfernt."
+            hint={t.compress.formatHint}
           />
         )}
         {(hasVideos || hasAudio) && (
           <Segmented<SpeedPreset>
-            label="Video-Encoder"
+            label={t.compress.encoder}
             value={settings.speed}
             onChange={(speed) => onChange({ ...settings, speed })}
-            options={(Object.keys(SPEED_PRESETS) as SpeedPreset[]).map((key) => ({ value: key, label: SPEED_PRESETS[key].label }))}
+            options={SPEEDS.map((key) => ({ value: key, label: t.compress.speed[key] }))}
           />
         )}
       </div>
 
       {hasVideos && (
         <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-          {settings.preset === "web"
-            ? "Videos werden mit H.264 (CRF 28) auf max. 720p und 30 fps optimiert – ideal fürs Web."
-            : "Bitrate, Auflösung und Bildrate werden aus der Videolänge berechnet. Die Datei wird anschließend geprüft – liegt sie doch über dem Limit, wird automatisch nachjustiert."}
+          {settings.preset === "web" ? t.compress.infoWeb : t.compress.infoTarget}
         </p>
       )}
 
       <Button size="lg" className="w-full sm:w-auto" onClick={onStart} data-testid="start-compress">
         <Shrink className="size-5" aria-hidden />
-        {items.length === 1 ? "Datei komprimieren" : `${items.length} Dateien komprimieren`}
+        {t.compress.start(items.length)}
       </Button>
     </div>
   );

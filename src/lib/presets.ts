@@ -1,46 +1,27 @@
+import { msg } from "@/i18n/runtime";
 import type { MediaInfo } from "./ffmpeg/probe";
 
 export type CompressPresetId = "discord" | "email" | "web";
 
 export interface CompressPreset {
   id: CompressPresetId;
-  label: string;
-  short: string;
-  description: string;
   /** Hard size limit in bytes (decimal MB, so the file also fits under binary MiB limits). */
   targetBytes: number | null;
 }
 
+/** Labels and descriptions live in the dictionaries (`compress.presets`). */
 export const COMPRESS_PRESETS: CompressPreset[] = [
-  {
-    id: "discord",
-    label: "Unter 10 MB (Discord Free)",
-    short: "Discord",
-    description: "Passt garantiert unter das 10-MB-Upload-Limit von Discord ohne Nitro.",
-    targetBytes: 10_000_000,
-  },
-  {
-    id: "email",
-    label: "Unter 5 MB (E-Mail / Upload-Limits)",
-    short: "E-Mail",
-    description: "Ideal für E-Mail-Anhänge, Formulare und Upload-Grenzen von Webseiten.",
-    targetBytes: 5_000_000,
-  },
-  {
-    id: "web",
-    label: "Maximale Web-Kompression",
-    short: "Web",
-    description: "Kleinstmögliche Datei bei guter Qualität – perfekt für Webseiten & Messenger.",
-    targetBytes: null,
-  },
+  { id: "discord", targetBytes: 10_000_000 },
+  { id: "email", targetBytes: 5_000_000 },
+  { id: "web", targetBytes: null },
 ];
 
 export type SpeedPreset = "fast" | "balanced" | "quality";
 
-export const SPEED_PRESETS: Record<SpeedPreset, { label: string; x264: string; vp9: number }> = {
-  fast: { label: "Schnell", x264: "superfast", vp9: 8 },
-  balanced: { label: "Ausgewogen", x264: "veryfast", vp9: 6 },
-  quality: { label: "Beste Qualität", x264: "medium", vp9: 4 },
+export const SPEED_PRESETS: Record<SpeedPreset, { x264: string }> = {
+  fast: { x264: "superfast" },
+  balanced: { x264: "veryfast" },
+  quality: { x264: "medium" },
 };
 
 export interface VideoPlan {
@@ -83,7 +64,8 @@ export const MIN_VIDEO_KBPS = 40;
 export function planVideoCompression(info: MediaInfo, preset: CompressPreset, safety = 0.95): VideoPlan {
   const warnings: string[] = [];
   const duration = info.duration ?? 0;
-  if (duration <= 0) throw new Error("Die Videolänge konnte nicht ermittelt werden.");
+  const t = msg();
+  if (duration <= 0) throw new Error(t.errors.durationUnknown);
   const sourceShort = info.video ? Math.min(info.video.width, info.video.height) : null;
   const sourceFps = info.video?.fps ?? 30;
   const hasAudio = Boolean(info.audio);
@@ -131,13 +113,11 @@ export function planVideoCompression(info: MediaInfo, preset: CompressPreset, sa
   }
   if (videoKbps < MIN_VIDEO_KBPS) {
     const maxSeconds = Math.floor(((preset.targetBytes * safety - 48 * 1024) * 8) / 1000 / (MIN_VIDEO_KBPS + 32));
-    throw new Error(
-      `Das Video ist zu lang für ${preset.short} (max. ca. ${Math.max(1, maxSeconds)} Sekunden bei minimaler Qualität). Kürze es zuerst mit dem Video-Cutter.`,
-    );
+    throw new Error(t.errors.tooLong(t.compress.presets[preset.id].short, Math.max(1, maxSeconds)));
   }
   const sourceVideoKbps = info.video.bitrate ? info.video.bitrate / 1000 : null;
   if (sourceVideoKbps && videoKbps > sourceVideoKbps) videoKbps = Math.floor(sourceVideoKbps);
-  if (videoKbps < 150) warnings.push("Sehr niedrige Bitrate – die Bildqualität wird deutlich sichtbar leiden.");
+  if (videoKbps < 150) warnings.push(t.notes.lowBitrate);
 
   const step = RESOLUTION_LADDER.find((entry) => videoKbps >= entry.minKbps) ?? RESOLUTION_LADDER[RESOLUTION_LADDER.length - 1];
   const shortSide = sourceShort ? even(Math.min(step.shortSide, sourceShort)) : null;
@@ -164,9 +144,7 @@ function sourceAudioKbps(info: MediaInfo): number | null {
 /** Audio-only compression: bitrate that fits the target size. */
 export function planAudioBitrate(durationSeconds: number, targetBytes: number, safety = 0.95): number {
   const kbps = ((targetBytes * safety - 16 * 1024) * 8) / durationSeconds / 1000;
-  if (kbps < 8) {
-    throw new Error("Die Audiodatei ist zu lang, um sie unter das Limit zu bringen. Kürze sie zuerst mit dem Cutter.");
-  }
+  if (kbps < 8) throw new Error(msg().errors.audioTooLong);
   const steps = [320, 256, 192, 160, 128, 112, 96, 80, 64, 48, 40, 32, 24, 16, 12, 8];
   return steps.find((step) => step <= kbps) ?? 8;
 }

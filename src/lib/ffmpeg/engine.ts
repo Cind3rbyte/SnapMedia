@@ -1,4 +1,5 @@
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
+import { msg } from "@/i18n/runtime";
 import { CancelledError, errorMessage } from "../utils";
 
 /**
@@ -58,7 +59,7 @@ async function downloadToBlobUrl(
   knownSize?: number | null,
 ): Promise<string> {
   const response = await fetch(url, { cache: "default" });
-  if (!response.ok) throw new Error(`Engine-Datei konnte nicht geladen werden (${response.status}): ${url}`);
+  if (!response.ok) throw new Error(msg().errors.engineFile(response.status, url));
   const encoding = response.headers.get("Content-Encoding");
   const lengthHeader = Number(response.headers.get("Content-Length"));
   // With Content-Encoding the header describes the compressed size – prefer the size from the manifest.
@@ -132,9 +133,9 @@ function isFatalEngineError(error: unknown): boolean {
 function friendlyEngineError(error: unknown): string {
   const text = errorMessage(error);
   if (/out of memory|\boom\b|cannot enlarge memory|memory access/i.test(text)) {
-    return "Nicht genug Arbeitsspeicher im Browser für diese Datei. Tipp: Video vorher kürzen, eine kleinere Auflösung wählen oder andere Tabs schließen.";
+    return msg().errors.engineMemory;
   }
-  return `Die FFmpeg-Engine ist abgestürzt und wurde neu gestartet. Bitte versuche es erneut. (${text.slice(0, 160)})`;
+  return msg().errors.engineCrashed(text.slice(0, 160));
 }
 
 /** Picks the most helpful line from FFmpeg's log for an error message. */
@@ -146,7 +147,7 @@ export function summarizeFFmpegLog(log: string[]): string {
         line,
       ) && !/^\s*(configuration|built with|lib)/i.test(line),
     );
-  return (interesting ?? log[log.length - 1] ?? "Unbekannter FFmpeg-Fehler").trim();
+  return (interesting ?? log[log.length - 1] ?? msg().errors.ffmpegUnknown).trim();
 }
 
 class FFmpegEngine {
@@ -207,14 +208,14 @@ class FFmpegEngine {
       try {
         return await this.loadMode("mt");
       } catch (error) {
-        console.warn("[SnapMedia] Multi-Thread-Engine nicht verfügbar, nutze Single-Thread:", error);
+        console.warn("[SnapMedia] Multi-threaded engine unavailable, falling back to single-thread:", error);
         this.multiThreadFailed = true;
       }
     }
     try {
       return await this.loadMode("st");
     } catch (error) {
-      const message = `FFmpeg-Engine konnte nicht gestartet werden: ${errorMessage(error)}`;
+      const message = msg().errors.engineStart(errorMessage(error));
       this.setStatus({ state: "error", message });
       throw new Error(message);
     }
@@ -273,7 +274,7 @@ class FFmpegEngine {
       await withTimeout(
         ffmpeg.load({ coreURL, wasmURL, workerURL }),
         LOAD_TIMEOUT_MS,
-        "Zeitüberschreitung beim Starten der FFmpeg-Engine.",
+        msg().errors.engineTimeout,
       );
     } catch (error) {
       ffmpeg.terminate();
@@ -348,7 +349,7 @@ class FFmpegEngine {
     try {
       const code = await ffmpeg.exec([...BASE_ARGS, ...args], undefined, { signal: options.signal });
       if (code !== 0) {
-        throw new FFmpegError(`FFmpeg konnte die Datei nicht verarbeiten: ${summarizeFFmpegLog(log)}`, code, log);
+        throw new FFmpegError(msg().errors.ffmpegFailed(summarizeFFmpegLog(log)), code, log);
       }
       return log;
     } finally {

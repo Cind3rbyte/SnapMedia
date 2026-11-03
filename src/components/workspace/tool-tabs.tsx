@@ -1,8 +1,9 @@
 "use client";
 
+import { useI18n } from "@/i18n/provider";
 import type { ToolId } from "@/lib/file-types";
 import { cn } from "@/lib/utils";
-import { TOOL_META, TOOL_ORDER } from "./tool-meta";
+import { TOOL_ICONS, TOOL_ORDER } from "./tool-meta";
 
 interface ToolTabsProps {
   available: Record<ToolId, number>;
@@ -11,12 +12,13 @@ interface ToolTabsProps {
 }
 
 export function ToolTabs({ available, active, onSelect }: ToolTabsProps) {
+  const { t } = useI18n();
   const tools = TOOL_ORDER.filter((tool) => available[tool] > 0);
   return (
-    <div role="tablist" aria-label="Passende Werkzeuge" className="grid grid-cols-2 gap-2 md:grid-cols-4">
+    <div role="tablist" aria-label={t.tools.tablist} className="grid grid-cols-2 gap-2 md:grid-cols-4">
       {tools.map((tool) => {
-        const meta = TOOL_META[tool];
-        const Icon = meta.icon;
+        const meta = t.tools[tool];
+        const Icon = TOOL_ICONS[tool];
         const selected = tool === active;
         return (
           <button

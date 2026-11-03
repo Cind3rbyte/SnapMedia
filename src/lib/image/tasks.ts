@@ -2,6 +2,7 @@ import { compressGif, convertGifToMp4, rasterizeWithFFmpeg } from "../ffmpeg/tas
 import { FORMATS, isCanvasDecodable, type MediaType } from "../file-types";
 import { imageTargetMiB, type CompressPreset } from "../presets";
 import type { TaskContext, TaskResult } from "../task-types";
+import { msg } from "@/i18n/runtime";
 import { formatBytes, outputName, throwIfAborted } from "../utils";
 import { canEncodeWebp, EXTENSION_FOR_MIME, type RasterMime } from "./canvas";
 import { decodeHeic, imageSize, rasterizeSvg } from "./decode";
@@ -32,7 +33,7 @@ export async function frameCount(file: File, type: MediaType): Promise<number> {
  */
 async function decodableSource(file: File, type: MediaType, ctx: TaskContext): Promise<Blob> {
   if (type.format === "heic") {
-    ctx.onStage?.("Dekodiere HEIC (iPhone-Foto)…");
+    ctx.onStage?.(msg().tasks.decodingHeic);
     return decodeHeic(file, "image/png");
   }
   if (!isCanvasDecodable(type.format)) {
@@ -80,7 +81,7 @@ export async function compressImage(
   // Web-friendly files that already fit are passed through untouched. HEIC, TIFF & co. are still converted,
   // because chat apps and browsers often cannot display them.
   if (target && file.size <= target && choice === "auto" && WEB_FRIENDLY.has(type.format)) {
-    return { blob: file, name: file.name, note: `Bereits unter ${formatBytes(target, 0)} – Original unverändert übernommen.` };
+    return { blob: file, name: file.name, note: msg().notes.alreadyUnder(formatBytes(target, 0)) };
   }
   const outputMime = await resolveOutputMime(type, choice, preset);
   const source = await decodableSource(file, type, ctx);
@@ -94,7 +95,7 @@ export async function compressImage(
   let result: Blob | null = null;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     throwIfAborted(ctx.signal);
-    ctx.onStage?.(attempt === 1 ? "Komprimiere Bild…" : `Verkleinere weiter – Versuch ${attempt}…`);
+    ctx.onStage?.(attempt === 1 ? msg().tasks.compressingImage : msg().tasks.shrinkingImage(attempt));
     ctx.onProgress?.(0);
     result = await imageCompression(sourceFile, {
       maxSizeMB: target ? imageTargetMiB(target) : undefined,
@@ -112,18 +113,18 @@ export async function compressImage(
     maxDimension = Math.max(320, Math.round(maxDimension * 0.7));
   }
   if (!result || (target && result.size > target)) {
-    throw new Error(`Das Bild konnte nicht unter ${formatBytes(target ?? 0, 0)} gebracht werden.`);
+    throw new Error(msg().errors.imageTooBig(formatBytes(target ?? 0, 0)));
   }
   // Compression must never make a web-friendly file bigger – then the original is the better result.
   if (result.size >= file.size && WEB_FRIENDLY.has(type.format)) {
-    return { blob: file, name: file.name, note: "Das Bild ist bereits optimal komprimiert – Original beibehalten." };
+    return { blob: file, name: file.name, note: msg().notes.imageAlreadyOptimal };
   }
   const outSize = await imageSize(result);
   const details: string[] = [];
-  if (outSize) details.push(`${outSize.width} × ${outSize.height} px`);
+  if (outSize) details.push(msg().details.dimensions(outSize.width, outSize.height));
   details.push(EXTENSION_FOR_MIME[outputMime].toUpperCase());
-  details.push("Metadaten entfernt");
-  const suffix = preset.id === "web" ? "web" : `unter-${Math.round((target ?? 0) / 1e6)}mb`;
+  details.push(msg().details.metadataRemoved);
+  const suffix = preset.id === "web" ? "web" : `under-${Math.round((target ?? 0) / 1e6)}mb`;
   return {
     blob: result,
     name: outputName(file.name, EXTENSION_FOR_MIME[outputMime], suffix),
@@ -147,7 +148,7 @@ export async function convertImage(
   ctx: TaskContext,
 ): Promise<TaskResult> {
   if (target === "mp4") {
-    if (type.format !== "gif") throw new Error("MP4 ist nur für animierte GIFs verfügbar.");
+    if (type.format !== "gif") throw new Error(msg().errors.mp4OnlyGif);
     return convertGifToMp4(file, type, ctx);
   }
   const mime = MIME_FOR_TARGET[target];
@@ -155,14 +156,14 @@ export async function convertImage(
   const frames = await frameCount(file, type);
 
   if (type.format === "svg") {
-    ctx.onStage?.("Rendere SVG…");
+    ctx.onStage?.(msg().tasks.renderingSvg);
     const rendered = await rasterizeSvg(file, options.svgScale, mime, options.quality, options.background);
     return finishConversion(file, rendered.blob, mime, rendered.width, rendered.height, options, frames);
   }
 
   let source: Blob = file;
   if (type.format === "heic") {
-    ctx.onStage?.("Dekodiere HEIC (iPhone-Foto)…");
+    ctx.onStage?.(msg().tasks.decodingHeic);
     // heic2any can write JPEG/PNG directly – skip the second encoding step when possible.
     if (mime !== "image/webp" && !options.maxDimension) {
       const blob = await decodeHeic(file, mime, options.quality);
@@ -175,7 +176,7 @@ export async function convertImage(
   }
 
   throwIfAborted(ctx.signal);
-  ctx.onStage?.(`Konvertiere zu ${extension.toUpperCase()}…`);
+  ctx.onStage?.(msg().tasks.convertingTo(extension.toUpperCase()));
   ctx.onProgress?.(0.3);
   const renderOptions = { type: mime, quality: options.quality, maxDimension: options.maxDimension, background: options.background };
   let rendered;
@@ -187,7 +188,7 @@ export async function convertImage(
     source = await rasterizeWithFFmpeg(file, type, ctx);
     rendered = await renderInWorker(source, renderOptions);
   }
-  const note = rendered.fellBack ? "Dein Browser kann kein WebP speichern – stattdessen wurde JPG erzeugt." : undefined;
+  const note = rendered.fellBack ? msg().notes.webpFallback : undefined;
   const result = finishConversion(file, rendered.blob, rendered.fellBack ? "image/jpeg" : mime, rendered.width, rendered.height, options, frames);
   return note ? { ...result, note } : result;
 }
@@ -203,14 +204,14 @@ function finishConversion(
 ): TaskResult {
   const extension = EXTENSION_FOR_MIME[mime];
   const details: string[] = [];
-  if (width && height) details.push(`${width} × ${height} px`);
-  if (mime !== "image/png") details.push(`Qualität ${Math.round(options.quality * 100)} %`);
-  details.push("ohne Metadaten");
+  if (width && height) details.push(msg().details.dimensions(width, height));
+  if (mime !== "image/png") details.push(msg().details.quality(Math.round(options.quality * 100)));
+  details.push(msg().details.noMetadata);
   return {
     blob,
     name: outputName(file.name, extension),
     details,
-    note: frames > 1 ? "Animation: Es wurde das erste Einzelbild gespeichert. Für bewegte Bilder wähle MP4." : undefined,
+    note: frames > 1 ? msg().notes.firstFrame : undefined,
   };
 }
 
@@ -218,11 +219,11 @@ function finishConversion(
 export function reportFindings(report: ImageMetadataReport, includeGenericExif = true): MetadataFinding[] {
   const findings = [...report.findings];
   if (report.hasXmp && !findings.some((f) => f.label.includes("XMP"))) {
-    findings.push({ category: "other", label: "XMP-Metadaten", value: "Bearbeitungs- und Kamerainformationen" });
+    findings.push({ category: "other", label: msg().findings.xmpBlock, value: msg().findings.xmpBlockValue });
   }
   // After cleaning, a minimal EXIF block that only carries the orientation may remain – that is intended.
   if (includeGenericExif && report.hasExif && findings.length === 0) {
-    findings.push({ category: "other", label: "EXIF-Block", value: "Technische Aufnahmedaten" });
+    findings.push({ category: "other", label: msg().findings.exifBlock, value: msg().findings.exifBlockValue });
   }
   return findings;
 }
@@ -237,41 +238,41 @@ export async function inspectImage(file: File, type: MediaType): Promise<ImageMe
  */
 export async function stripImage(file: File, type: MediaType, keepIcc: boolean, ctx: TaskContext): Promise<TaskResult> {
   if (supportsLosslessStrip(type.format)) {
-    ctx.onStage?.("Entferne Metadaten (verlustfrei)…");
+    ctx.onStage?.(msg().tasks.strippingLossless);
     ctx.onProgress?.(0.4);
     const result = await stripInWorker(await file.arrayBuffer(), type.format, { keepIcc });
     const extension = type.format === "jpeg" ? "jpg" : type.format;
-    const details = ["Verlustfrei – Bildpunkte unverändert"];
-    if (result.before.orientation !== 1) details.push("Ausrichtung beibehalten");
-    if (keepIcc && result.after.hasIcc) details.push("Farbprofil beibehalten");
+    const details = [msg().details.losslessPixels];
+    if (result.before.orientation !== 1) details.push(msg().details.orientationKept);
+    if (keepIcc && result.after.hasIcc) details.push(msg().details.iccKept);
     return {
       blob: new Blob([result.buffer], { type: FORMATS[type.format].mime }),
-      name: outputName(file.name, extension, "ohne-metadaten"),
+      name: outputName(file.name, extension, "clean"),
       details,
       removed: reportFindings(result.before),
       remaining: reportFindings(result.after, false),
     };
   }
 
-  ctx.onStage?.("Lese Metadaten…");
+  ctx.onStage?.(msg().tasks.readingMetadata);
   const before = await inspectImage(file, type);
   const toJpeg = ["heic", "avif"].includes(type.format);
   const mime: RasterMime = toJpeg ? "image/jpeg" : "image/png";
   let blob: Blob;
   if (type.format === "heic") {
-    ctx.onStage?.("Dekodiere HEIC und speichere als sauberes JPG…");
+    ctx.onStage?.(msg().tasks.heicToJpg);
     blob = await decodeHeic(file, "image/jpeg", 0.92);
   } else {
     const source = isCanvasDecodable(type.format) ? file : await rasterizeWithFFmpeg(file, type, ctx);
-    ctx.onStage?.("Speichere sauberes Bild…");
+    ctx.onStage?.(msg().tasks.savingClean);
     blob = (await renderInWorker(source, { type: mime, quality: 0.92, maxDimension: null, background: "#ffffff" })).blob;
   }
   const outFormat = mime === "image/jpeg" ? "jpeg" : "png";
   const after = await inspectInWorker(await blob.arrayBuffer(), outFormat);
   return {
     blob,
-    name: outputName(file.name, EXTENSION_FOR_MIME[mime], "ohne-metadaten"),
-    details: [toJpeg ? "Neu gespeichert als JPG (Qualität 92 %)" : "Neu gespeichert als PNG (verlustfrei)"],
+    name: outputName(file.name, EXTENSION_FOR_MIME[mime], "clean"),
+    details: [toJpeg ? msg().details.savedJpg : msg().details.savedPng],
     removed: reportFindings(before),
     remaining: reportFindings(after, false),
   };

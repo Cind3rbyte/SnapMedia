@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/runtime";
 import { createCanvas, canvasToBlob, decodeBitmap, fitDimensions, type RasterMime } from "./canvas";
 
 /**
@@ -13,7 +14,7 @@ export async function decodeHeic(file: Blob, toType: "image/png" | "image/jpeg",
     try {
       const canvas = createCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-      if (!ctx) throw new Error("Canvas nicht verfügbar");
+      if (!ctx) throw new Error(msg().errors.canvasUnavailable);
       if (toType === "image/jpeg") {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, bitmap.width, bitmap.height);
@@ -30,12 +31,12 @@ export async function decodeHeic(file: Blob, toType: "image/png" | "image/jpeg",
   try {
     const output = await heic2any({ blob: file, toType, quality });
     const blob = Array.isArray(output) ? output[0] : output;
-    if (!blob || blob.size === 0) throw new Error("Leeres Ergebnis");
+    if (!blob || blob.size === 0) throw new Error("empty result");
     return blob;
   } catch (error) {
     const message =
       error && typeof error === "object" && "message" in error ? String((error as { message: unknown }).message) : String(error);
-    throw new Error(`HEIC-Datei konnte nicht gelesen werden (${message}).`);
+    throw new Error(msg().errors.heic(message));
   }
 }
 
@@ -83,7 +84,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     const image = new Image();
     image.decoding = "async";
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Die SVG-Grafik konnte nicht gerendert werden."));
+    image.onerror = () => reject(new Error(msg().errors.svgRender));
     image.src = url;
   });
 }
@@ -100,7 +101,7 @@ export async function rasterizeSvg(
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const svg = doc.documentElement;
   if (!svg || svg.nodeName.toLowerCase() !== "svg" || doc.getElementsByTagName("parsererror").length > 0) {
-    throw new Error("Die SVG-Datei ist ungültig oder beschädigt.");
+    throw new Error(msg().errors.svgInvalid);
   }
   const size = svgIntrinsicSize(svg);
   const target = fitDimensions(size.width * scale, size.height * scale, null);
@@ -117,7 +118,7 @@ export async function rasterizeSvg(
     canvas.width = target.width;
     canvas.height = target.height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas nicht verfügbar.");
+    if (!ctx) throw new Error(msg().errors.canvasUnavailable);
     if (type === "image/jpeg") {
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, target.width, target.height);

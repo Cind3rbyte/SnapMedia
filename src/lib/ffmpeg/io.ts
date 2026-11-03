@@ -1,5 +1,6 @@
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
+import { msg } from "@/i18n/runtime";
 import { ffmpegEngine } from "./engine";
 import { parseFFmpegInfoLog, parseProbeJson, type MediaInfo } from "./probe";
 
@@ -32,7 +33,7 @@ export async function withInputFile<T>(
     const { FFFSType } = await import("@ffmpeg/ffmpeg");
     const renamed = new File([file], safeName, { type: file.type, lastModified: file.lastModified });
     mounted = await ffmpeg.mount(FFFSType.WORKERFS, { files: [renamed] }, dir);
-    if (!mounted) throw new Error("WORKERFS nicht verfügbar");
+    if (!mounted) throw new Error("WORKERFS unavailable");
   } catch {
     mounted = false;
     inputPath = tempName(extension || "bin");
@@ -59,8 +60,8 @@ export async function withInputFile<T>(
 export async function readOutput(ffmpeg: FFmpeg, path: string, mime: string): Promise<Blob> {
   const data = await ffmpeg.readFile(path);
   await ffmpeg.deleteFile(path).catch(() => undefined);
-  if (typeof data === "string") throw new Error("Unerwartete Textausgabe von FFmpeg.");
-  if (data.byteLength === 0) throw new Error("FFmpeg hat eine leere Datei erzeugt.");
+  if (typeof data === "string") throw new Error(msg().errors.textOutput);
+  if (data.byteLength === 0) throw new Error(msg().errors.emptyOutput);
   return new Blob([data as BlobPart], { type: mime });
 }
 
@@ -87,7 +88,7 @@ export async function probeInput(ffmpeg: FFmpeg, inputPath: string): Promise<Med
     info = parseFFmpegInfoLog(log);
   }
   if (!info.video && !info.audio) {
-    throw new Error("Die Datei enthält keine lesbaren Video- oder Audiospuren.");
+    throw new Error(msg().errors.noStreams);
   }
   if (!info.duration) {
     // Containers without duration (e.g. WebM from MediaRecorder): demux once to measure it.

@@ -1,6 +1,7 @@
 /**
  * Canvas helpers that work both on the main thread and inside Web Workers (OffscreenCanvas).
  */
+import { msg } from "@/i18n/runtime";
 
 export type RasterMime = "image/jpeg" | "image/png" | "image/webp";
 
@@ -45,7 +46,7 @@ export function createCanvas(width: number, height: number): AnyCanvas {
     const canvas = new OffscreenCanvas(width, height);
     if (canvas.getContext("2d")) return canvas;
   }
-  if (typeof document === "undefined") throw new Error("Canvas ist in dieser Umgebung nicht verfügbar.");
+  if (typeof document === "undefined") throw new Error(msg().errors.canvasUnavailable);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -54,7 +55,7 @@ export function createCanvas(width: number, height: number): AnyCanvas {
 
 function context2d(canvas: AnyCanvas): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!ctx) throw new Error("2D-Canvas konnte nicht erstellt werden (zu wenig Speicher?).");
+  if (!ctx) throw new Error(msg().errors.canvasMemory);
   return ctx;
 }
 
@@ -64,7 +65,7 @@ export async function canvasToBlob(canvas: AnyCanvas, type: RasterMime, quality:
   }
   return new Promise<Blob>((resolve, reject) => {
     (canvas as HTMLCanvasElement).toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Bild konnte nicht kodiert werden."))),
+      (blob) => (blob ? resolve(blob) : reject(new Error(msg().errors.encode))),
       type,
       quality,
     );

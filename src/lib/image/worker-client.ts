@@ -1,3 +1,4 @@
+import { getActiveLocale, msg } from "@/i18n/runtime";
 import type { ImageWorkerRequest, ImageWorkerResponse } from "../../workers/image.worker";
 import { decodeBitmap, renderToBlob, type RenderOptions, type RenderResult } from "./canvas";
 import { inspectImageMetadata, stripImageMetadata, type ImageMetadataReport, type StripOptions } from "./metadata";
@@ -8,10 +9,10 @@ import { inspectImageMetadata, stripImageMetadata, type ImageMetadataReport, typ
  */
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-type Payload = DistributiveOmit<ImageWorkerRequest, "id">;
+type Payload = DistributiveOmit<ImageWorkerRequest, "id" | "locale">;
 
 export class ImageDecodeError extends Error {
-  constructor(message = "Das Bildformat kann von diesem Browser nicht gelesen werden.") {
+  constructor(message = msg().errors.decode) {
     super(message);
     this.name = "ImageDecodeError";
   }
@@ -53,7 +54,7 @@ function getWorker(): Worker {
       workerBroken = true;
       worker?.terminate();
       worker = null;
-      rejectAll(new WorkerUnavailableError(event.message || "Bild-Worker abgestürzt"));
+      rejectAll(new WorkerUnavailableError(event.message || "Image worker crashed"));
     };
   }
   return worker;
@@ -64,7 +65,7 @@ function call<T>(payload: Payload, transfer: Transferable[] = []): Promise<T> {
   const id = nextId++;
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-    instance.postMessage({ ...payload, id }, transfer);
+    instance.postMessage({ ...payload, id, locale: getActiveLocale() }, transfer);
   });
 }
 

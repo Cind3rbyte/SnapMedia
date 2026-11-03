@@ -1,8 +1,12 @@
+"use client";
+
 import { Coffee } from "lucide-react";
+import { useI18n } from "@/i18n/provider";
 import { siteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
 export function DonateButton({ className, compact = false }: { className?: string; compact?: boolean }) {
+  const { t } = useI18n();
   return (
     <a
       href={siteConfig.kofiUrl}
@@ -12,14 +16,17 @@ export function DonateButton({ className, compact = false }: { className?: strin
         "inline-flex items-center gap-2 rounded-lg bg-kofi px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-kofi-hover",
         className,
       )}
-      aria-label="Buy Me a Coffee – SnapMedia auf Ko-fi unterstützen"
+      aria-label={t.donate.aria}
+      data-testid={compact ? "donate-compact" : "donate"}
     >
       <Coffee className="size-4" aria-hidden />
       {compact ? (
-        <span>Ko-fi</span>
+        <span>{t.donate.short}</span>
       ) : (
         <span>
-          <span aria-hidden>☕ </span>Buy Me a Coffee<span className="hidden sm:inline"> / Support on Ko-fi</span>
+          <span aria-hidden>☕ </span>
+          {t.donate.label}
+          <span className="hidden sm:inline">{t.donate.labelSuffix}</span>
         </span>
       )}
     </a>

@@ -5,13 +5,16 @@
  *  - "strip":   remove metadata losslessly (JPEG/PNG/WebP/GIF)
  *  - "convert": decode + resize + encode via OffscreenCanvas (JPG/PNG/WebP)
  */
+import type { Locale } from "../i18n/config";
+import { msg, setActiveLocale } from "../i18n/runtime";
 import { decodeBitmap, renderToBlob, type RenderOptions } from "../lib/image/canvas";
 import { inspectImageMetadata, stripImageMetadata, type StripOptions } from "../lib/image/metadata";
 
-export type ImageWorkerRequest =
-  | { id: number; type: "inspect"; buffer: ArrayBuffer; format: string }
-  | { id: number; type: "strip"; buffer: ArrayBuffer; format: string; options: StripOptions }
-  | { id: number; type: "convert"; blob: Blob; options: RenderOptions };
+export type ImageWorkerRequest = { id: number; locale: Locale } & (
+  | { type: "inspect"; buffer: ArrayBuffer; format: string }
+  | { type: "strip"; buffer: ArrayBuffer; format: string; options: StripOptions }
+  | { type: "convert"; blob: Blob; options: RenderOptions }
+);
 
 export type ImageWorkerResponse =
   | { id: number; ok: true; result: unknown }
@@ -25,6 +28,8 @@ function reply(message: ImageWorkerResponse, transfer: Transferable[] = []) {
 
 scope.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
   const request = event.data;
+  // Findings and error messages are produced in the language of the page that sent the request.
+  setActiveLocale(request.locale);
   try {
     switch (request.type) {
       case "inspect": {
@@ -42,14 +47,14 @@ scope.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
       }
       case "convert": {
         if (typeof OffscreenCanvas === "undefined") {
-          reply({ id: request.id, ok: false, error: "OffscreenCanvas nicht verfügbar", code: "unsupported" });
+          reply({ id: request.id, ok: false, error: "OffscreenCanvas unavailable", code: "unsupported" });
           return;
         }
         let bitmap: ImageBitmap;
         try {
           bitmap = await decodeBitmap(request.blob);
         } catch {
-          reply({ id: request.id, ok: false, error: "Das Bildformat kann von diesem Browser nicht gelesen werden.", code: "decode" });
+          reply({ id: request.id, ok: false, error: msg().errors.decode, code: "decode" });
           return;
         }
         try {
@@ -61,7 +66,7 @@ scope.onmessage = async (event: MessageEvent<ImageWorkerRequest>) => {
         break;
       }
       default:
-        reply({ id: (request as { id: number }).id, ok: false, error: "Unbekannte Anfrage", code: "failed" });
+        reply({ id: (request as { id: number }).id, ok: false, error: "Unknown request", code: "failed" });
     }
   } catch (error) {
     reply({

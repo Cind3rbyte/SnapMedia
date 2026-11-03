@@ -1,6 +1,7 @@
 "use client";
 
 import { FileAudio, FileQuestion, FileVideo, ImageIcon, X } from "lucide-react";
+import { useI18n } from "@/i18n/provider";
 import { formatBytes } from "@/lib/utils";
 import type { InputItem } from "./types";
 
@@ -30,6 +31,7 @@ interface FileListProps {
 }
 
 export function FileList({ items, onRemove, onClear }: FileListProps) {
+  const { t } = useI18n();
   const counts = {
     image: items.filter((item) => item.type.kind === "image").length,
     video: items.filter((item) => item.type.kind === "video").length,
@@ -37,20 +39,20 @@ export function FileList({ items, onRemove, onClear }: FileListProps) {
     unsupported: items.filter((item) => item.type.kind === "unsupported").length,
   };
   const summary = [
-    counts.image && `${counts.image} ${counts.image === 1 ? "Bild" : "Bilder"}`,
-    counts.video && `${counts.video} ${counts.video === 1 ? "Video" : "Videos"}`,
-    counts.audio && `${counts.audio} Audio`,
-    counts.unsupported && `${counts.unsupported} nicht unterstützt`,
+    counts.image && t.files.images(counts.image),
+    counts.video && t.files.videos(counts.video),
+    counts.audio && t.files.audios(counts.audio),
+    counts.unsupported && t.files.unsupported(counts.unsupported),
   ].filter(Boolean);
 
   return (
     <section aria-labelledby="files-heading" className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <h2 id="files-heading" className="text-sm font-semibold">
-          Erkannt: <span className="font-normal text-muted-foreground">{summary.join(" · ")}</span>
+          {t.files.detected} <span className="font-normal text-muted-foreground">{summary.join(" · ")}</span>
         </h2>
         <button type="button" onClick={onClear} className="text-xs text-muted-foreground transition hover:text-danger">
-          Alle entfernen
+          {t.files.removeAll}
         </button>
       </div>
       <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="file-list">
@@ -71,7 +73,7 @@ export function FileList({ items, onRemove, onClear }: FileListProps) {
                       : "rounded bg-muted px-1.5 py-0.5 font-medium text-foreground"
                   }
                 >
-                  {item.type.kind === "unsupported" ? "Nicht unterstützt" : item.type.label}
+                  {item.type.kind === "unsupported" ? t.files.unsupportedBadge : item.type.label}
                 </span>
                 {formatBytes(item.file.size)}
               </p>
@@ -80,7 +82,7 @@ export function FileList({ items, onRemove, onClear }: FileListProps) {
               type="button"
               onClick={() => onRemove(item.id)}
               className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              aria-label={`${item.file.name} entfernen`}
+              aria-label={t.files.remove(item.file.name)}
             >
               <X className="size-4" aria-hidden />
             </button>

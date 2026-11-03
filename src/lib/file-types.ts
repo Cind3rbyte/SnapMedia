@@ -52,7 +52,7 @@ export const FORMATS: Record<string, FormatInfo> = {
   wma: { kind: "audio", mime: "audio/x-ms-wma", label: "WMA" },
   aiff: { kind: "audio", mime: "audio/aiff", label: "AIFF" },
   amr: { kind: "audio", mime: "audio/amr", label: "AMR" },
-  weba: { kind: "audio", mime: "audio/webm", label: "WebM-Audio" },
+  weba: { kind: "audio", mime: "audio/webm", label: "WebM Audio" },
 };
 
 const EXTENSION_FORMATS: Record<string, string> = {
@@ -179,7 +179,7 @@ export async function detectMediaType(file: File): Promise<MediaType> {
   }
 
   if (!format || !FORMATS[format]) {
-    return { kind: "unsupported", format: fileExtension(file.name) || "unbekannt", mime: file.type, label: "Unbekannt" };
+    return { kind: "unsupported", format: fileExtension(file.name) || "unknown", mime: file.type, label: "Unknown" };
   }
   const info = FORMATS[format];
   return { kind: info.kind, format, mime: info.mime, label: info.label };

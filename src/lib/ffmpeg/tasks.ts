@@ -10,7 +10,8 @@ import {
   type SpeedPreset,
   type VideoPlan,
 } from "../presets";
-import { formatBytes, outputName, throwIfAborted } from "../utils";
+import { msg } from "@/i18n/runtime";
+import { formatBytes, formatNumber, outputName, throwIfAborted } from "../utils";
 import { ffmpegEngine } from "./engine";
 import { probeInput, readOutput, removeFile, tempName, withInputFile } from "./io";
 import { mediaTagFindings, type MediaInfo } from "./probe";
@@ -25,11 +26,11 @@ async function withMedia<T>(
   ctx: TaskContext,
   job: (ffmpeg: FFmpeg, input: string, info: MediaInfo) => Promise<T>,
 ): Promise<T> {
-  ctx.onStage?.("Warte auf FFmpeg-Engine…");
+  ctx.onStage?.(msg().tasks.waitingEngine);
   return ffmpegEngine.run(async (ffmpeg) => {
     throwIfAborted(ctx.signal);
     return withInputFile(ffmpeg, file, type.format, async (input) => {
-      ctx.onStage?.("Analysiere Datei…");
+      ctx.onStage?.(msg().tasks.analyzing);
       const info = await probeInput(ffmpeg, input);
       throwIfAborted(ctx.signal);
       return job(ffmpeg, input, info);
@@ -53,15 +54,16 @@ function scaleFilter(shortSide: number | null): string {
 }
 
 function describeVideo(info: MediaInfo, plan: VideoPlan, videoKbps: number | null): string[] {
+  const d = msg().details;
   const details: string[] = [];
   if (info.video && plan.shortSide) {
     const sourceShort = Math.min(info.video.width, info.video.height);
-    details.push(plan.shortSide < sourceShort ? `${plan.shortSide}p (vorher ${sourceShort}p)` : `${plan.shortSide}p`);
+    details.push(d.resolution(plan.shortSide, plan.shortSide < sourceShort ? sourceShort : null));
   }
-  if (plan.fps) details.push(`${plan.fps} fps`);
-  if (videoKbps) details.push(`Video ${videoKbps.toLocaleString("de-DE")} kbit/s`);
-  if (plan.crf) details.push(`Qualitätsstufe CRF ${plan.crf}`);
-  if (info.audio && plan.audioKbps) details.push(`Audio ${plan.audioKbps} kbit/s${plan.mono ? " mono" : ""}`);
+  if (plan.fps) details.push(d.fps(plan.fps));
+  if (videoKbps) details.push(d.videoKbps(formatNumber(videoKbps)));
+  if (plan.crf) details.push(d.crf(plan.crf));
+  if (info.audio && plan.audioKbps) details.push(d.audioKbps(plan.audioKbps, plan.mono));
   return details;
 }
 
@@ -87,6 +89,15 @@ function videoArgs(input: string, output: string, plan: VideoPlan, videoKbps: nu
   return args;
 }
 
+/**
+ * Video files often carry GPS coordinates and device info in their container tags (e.g. iPhone videos).
+ * Every new file made from a video drops them; the display rotation is side data and stays intact.
+ * Pure audio files keep their tags (title, artist …).
+ */
+function privacyArgs(type: MediaType): string[] {
+  return type.kind === "video" ? ["-map_metadata", "-1", "-map_chapters", "-1"] : [];
+}
+
 function keepOriginal(file: File, note: string): TaskResult {
   return { blob: file, name: file.name, note };
 }
@@ -103,7 +114,7 @@ export async function compressVideo(
   ctx: TaskContext,
 ): Promise<TaskResult> {
   if (preset.targetBytes && file.size <= preset.targetBytes) {
-    return keepOriginal(file, `Bereits unter ${formatBytes(preset.targetBytes, 0)} – Original unverändert übernommen.`);
+    return keepOriginal(file, msg().notes.alreadyUnder(formatBytes(preset.targetBytes, 0)));
   }
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
     if (!info.video) return compressAudioLoaded(ffmpeg, file, input, info, preset, ctx);
@@ -112,7 +123,7 @@ export async function compressVideo(
     const maxAttempts = plan.mode === "target" ? 3 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       throwIfAborted(ctx.signal);
-      ctx.onStage?.(attempt === 1 ? "Komprimiere Video…" : `Feinabstimmung – Durchgang ${attempt} von ${maxAttempts}…`);
+      ctx.onStage?.(attempt === 1 ? msg().tasks.compressingVideo : msg().tasks.refining(attempt, maxAttempts));
       ctx.onProgress?.(0);
       const output = tempName("mp4");
       await ffmpegEngine.exec(ffmpeg, videoArgs(input, output, plan, videoKbps, speed), {
@@ -121,10 +132,10 @@ export async function compressVideo(
         signal: ctx.signal,
       });
       const blob = await readOutput(ffmpeg, output, "video/mp4");
-      const name = outputName(file.name, "mp4", preset.id === "web" ? "web" : `unter-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
+      const name = outputName(file.name, "mp4", preset.id === "web" ? "web" : `under-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
       if (plan.mode === "quality") {
         if (blob.size >= file.size) {
-          return keepOriginal(file, "Die Datei ist bereits optimal komprimiert – Original beibehalten.");
+          return keepOriginal(file, msg().notes.alreadyOptimal);
         }
         return { blob, name, details: describeVideo(info, plan, null), note: plan.warnings[0] };
       }
@@ -138,9 +149,7 @@ export async function compressVideo(
       const factor = Math.max(0.3, (target * 0.93 - audioBytes) / Math.max(1, blob.size - audioBytes));
       videoKbps = Math.max(MIN_VIDEO_KBPS, Math.floor((videoKbps ?? MIN_VIDEO_KBPS) * factor));
     }
-    throw new Error(
-      `Die Zielgröße von ${formatBytes(plan.targetBytes ?? 0, 0)} konnte nicht erreicht werden. Kürze das Video oder wähle ein größeres Limit.`,
-    );
+    throw new Error(msg().errors.targetNotReached(formatBytes(plan.targetBytes ?? 0, 0)));
   });
 }
 
@@ -152,13 +161,13 @@ async function compressAudioLoaded(
   preset: CompressPreset,
   ctx: TaskContext,
 ): Promise<TaskResult> {
-  if (!info.audio) throw new Error("Die Datei enthält keine Audiospur.");
+  if (!info.audio) throw new Error(msg().errors.noAudioTrack);
   const duration = info.duration ?? 0;
-  if (duration <= 0) throw new Error("Die Länge der Audiodatei konnte nicht ermittelt werden.");
+  if (duration <= 0) throw new Error(msg().errors.audioDurationUnknown);
   let kbps = preset.targetBytes ? planAudioBitrate(duration, preset.targetBytes) : 96;
   const t = threadArgs();
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    ctx.onStage?.(attempt === 1 ? "Komprimiere Audio…" : `Feinabstimmung – Durchgang ${attempt}…`);
+    ctx.onStage?.(attempt === 1 ? msg().tasks.compressingAudio : msg().tasks.refiningAudio(attempt));
     const output = tempName("m4a");
     const mono = kbps <= 48;
     await ffmpegEngine.exec(
@@ -167,16 +176,16 @@ async function compressAudioLoaded(
       { duration, onProgress: (ratio) => ctx.onProgress?.(ratio), signal: ctx.signal },
     );
     const blob = await readOutput(ffmpeg, output, "audio/mp4");
-    const name = outputName(file.name, "m4a", preset.id === "web" ? "web" : `unter-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
-    const details = [`AAC ${kbps} kbit/s${mono ? " mono" : ""}`];
+    const name = outputName(file.name, "m4a", preset.id === "web" ? "web" : `under-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
+    const details = [msg().details.aacKbps(kbps, mono)];
     if (!preset.targetBytes) {
-      if (blob.size >= file.size) return keepOriginal(file, "Die Datei ist bereits optimal komprimiert – Original beibehalten.");
+      if (blob.size >= file.size) return keepOriginal(file, msg().notes.alreadyOptimal);
       return { blob, name, details };
     }
     if (blob.size <= preset.targetBytes) return { blob, name, details };
     kbps = Math.max(8, Math.floor(kbps * ((preset.targetBytes * 0.93) / blob.size)));
   }
-  throw new Error("Die Zielgröße konnte nicht erreicht werden. Kürze die Audiodatei zuerst.");
+  throw new Error(msg().errors.audioTargetNotReached);
 }
 
 export async function compressAudio(
@@ -186,7 +195,7 @@ export async function compressAudio(
   ctx: TaskContext,
 ): Promise<TaskResult> {
   if (preset.targetBytes && file.size <= preset.targetBytes) {
-    return keepOriginal(file, `Bereits unter ${formatBytes(preset.targetBytes, 0)} – Original unverändert übernommen.`);
+    return keepOriginal(file, msg().notes.alreadyUnder(formatBytes(preset.targetBytes, 0)));
   }
   return withMedia(file, type, ctx, (ffmpeg, input, info) => compressAudioLoaded(ffmpeg, file, input, info, preset, ctx));
 }
@@ -203,7 +212,7 @@ function gifFilter(fps: number, width: number, colors: number): string {
 /** Shrinks animated GIFs (frame rate, size, colors) until they fit – the animation stays a GIF. */
 export async function compressGif(file: File, type: MediaType, preset: CompressPreset, ctx: TaskContext): Promise<TaskResult> {
   if (preset.targetBytes && file.size <= preset.targetBytes) {
-    return keepOriginal(file, `Bereits unter ${formatBytes(preset.targetBytes, 0)} – Original unverändert übernommen.`);
+    return keepOriginal(file, msg().notes.alreadyUnder(formatBytes(preset.targetBytes, 0)));
   }
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
     const sourceWidth = info.video?.displayWidth ?? 480;
@@ -215,7 +224,7 @@ export async function compressGif(file: File, type: MediaType, preset: CompressP
     const attempts = preset.targetBytes ? 5 : 1;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       throwIfAborted(ctx.signal);
-      ctx.onStage?.(attempt === 1 ? "Optimiere GIF…" : `Verkleinere weiter – Versuch ${attempt} von ${attempts}…`);
+      ctx.onStage?.(attempt === 1 ? msg().tasks.optimizingGif : msg().tasks.shrinkingGif(attempt, attempts));
       const output = tempName("gif");
       await ffmpegEngine.exec(
         ffmpeg,
@@ -223,10 +232,10 @@ export async function compressGif(file: File, type: MediaType, preset: CompressP
         { duration: info.duration, onProgress: (ratio) => ctx.onProgress?.(ratio), signal: ctx.signal },
       );
       const blob = await readOutput(ffmpeg, output, "image/gif");
-      const details = [`${Math.round(width)} px breit`, `${Math.round(fps)} fps`, `${colors} Farben`];
-      const name = outputName(file.name, "gif", preset.id === "web" ? "web" : `unter-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
+      const details = [msg().details.gifWidth(Math.round(width)), msg().details.fps(Math.round(fps)), msg().details.gifColors(colors)];
+      const name = outputName(file.name, "gif", preset.id === "web" ? "web" : `under-${Math.round((preset.targetBytes ?? 0) / 1e6)}mb`);
       if (!preset.targetBytes) {
-        if (blob.size >= file.size) return keepOriginal(file, "Das GIF ist bereits optimal komprimiert – Original beibehalten.");
+        if (blob.size >= file.size) return keepOriginal(file, msg().notes.gifAlreadyOptimal);
         return { blob, name, details };
       }
       if (blob.size <= preset.targetBytes) return { blob, name, details };
@@ -241,7 +250,7 @@ export async function compressGif(file: File, type: MediaType, preset: CompressP
       width = Math.max(64, width);
       if (attempt >= 2) colors = Math.max(32, colors / 2);
     }
-    throw new Error("Das GIF ließ sich nicht klein genug bekommen. Tipp: Wandle es in ein MP4 um – das ist bis zu 90 % kleiner.");
+    throw new Error(msg().errors.gifTooBig);
   });
 }
 
@@ -260,7 +269,7 @@ export async function convertToAudio(
   ctx: TaskContext,
 ): Promise<TaskResult> {
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
-    if (!info.audio) throw new Error("Diese Datei enthält keine Tonspur.");
+    if (!info.audio) throw new Error(msg().errors.noAudioTrack);
     const t = threadArgs();
     const sourceCodec = info.audio.codec;
     let ext: string;
@@ -272,33 +281,33 @@ export async function convertToAudio(
       mime = "audio/mp4";
       if (sourceCodec === "aac") {
         codecArgs = ["-c:a", "copy"];
-        details = ["Original-AAC-Spur 1:1 übernommen (verlustfrei)"];
+        details = [msg().details.aacCopy];
       } else {
         codecArgs = ["-c:a", "aac", "-b:a", "192k"];
-        details = ["AAC 192 kbit/s"];
+        details = [msg().details.aac192];
       }
     } else if (target === "mp3") {
       ext = "mp3";
       mime = "audio/mpeg";
       if (sourceCodec === "mp3" && type.format !== "mp3") {
         codecArgs = ["-c:a", "copy"];
-        details = ["Original-MP3-Spur 1:1 übernommen (verlustfrei)"];
+        details = [msg().details.mp3Copy];
       } else {
         codecArgs = ["-c:a", "libmp3lame", "-b:a", `${mp3Bitrate}k`];
-        details = [`MP3 ${mp3Bitrate} kbit/s`];
+        details = [msg().details.mp3Kbps(mp3Bitrate)];
       }
     } else {
       ext = "wav";
       mime = "audio/wav";
       codecArgs = ["-c:a", "pcm_s16le"];
-      details = ["WAV 16 Bit (unkomprimiert)"];
+      details = [msg().details.wav];
     }
-    ctx.onStage?.(`Erzeuge ${ext.toUpperCase()}…`);
+    ctx.onStage?.(msg().tasks.creating(ext.toUpperCase()));
     const output = tempName(ext);
     const metadataArgs = ext === "mp3" ? ["-id3v2_version", "3"] : [];
     await ffmpegEngine.exec(
       ffmpeg,
-      [...t.global, "-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn", ...codecArgs, ...metadataArgs, output],
+      [...t.global, "-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn", ...codecArgs, ...metadataArgs, ...privacyArgs(type), output],
       { duration: info.duration, onProgress: (ratio) => ctx.onProgress?.(ratio), signal: ctx.signal },
     );
     const blob = await readOutput(ffmpeg, output, mime);
@@ -308,7 +317,7 @@ export async function convertToAudio(
 
 export async function convertVideoToMp4(file: File, type: MediaType, speed: SpeedPreset, ctx: TaskContext): Promise<TaskResult> {
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
-    if (!info.video) throw new Error("Diese Datei enthält keine Videospur.");
+    if (!info.video) throw new Error(msg().errors.noVideoTrack);
     const t = threadArgs();
     // H.264 plays everywhere and can be remuxed losslessly; everything else (HEVC, VP9, …) is re-encoded.
     const videoCopy = info.video.codec === "h264";
@@ -317,17 +326,17 @@ export async function convertVideoToMp4(file: File, type: MediaType, speed: Spee
     let args: string[];
     let details: string[];
     if (videoCopy && audioCopy) {
-      ctx.onStage?.("Übertrage Spuren ins MP4-Format (ohne Neukodierung)…");
-      args = ["-i", input, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-sn", "-dn"];
-      details = ["Verlustfrei umverpackt (Remux)", "H.264"];
+      ctx.onStage?.(msg().tasks.remuxing);
+      args = ["-i", input, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-sn", "-dn", ...privacyArgs(type)];
+      details = [msg().details.remux, msg().details.h264];
     } else {
-      ctx.onStage?.("Kodiere zu MP4 (H.264)…");
+      ctx.onStage?.(msg().tasks.encodingMp4);
       args = [
         ...t.global, ...t.decode, "-i", input, "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", scaleFilter(null), "-c:v", "libx264", "-preset", SPEED_PRESETS[speed].x264, "-crf", "21",
-        "-pix_fmt", "yuv420p", ...t.encode, "-c:a", "aac", "-b:a", "160k", "-sn", "-dn",
+        "-pix_fmt", "yuv420p", ...t.encode, "-c:a", "aac", "-b:a", "160k", "-sn", "-dn", ...privacyArgs(type),
       ];
-      details = ["H.264 / AAC", "CRF 21 (sehr gute Qualität)"];
+      details = [msg().details.h264Aac, msg().details.crf21];
     }
     args.push("-movflags", "+faststart", output);
     await ffmpegEngine.exec(ffmpeg, args, {
@@ -347,9 +356,9 @@ export interface GifOptions {
 
 export async function convertVideoToGif(file: File, type: MediaType, options: GifOptions, ctx: TaskContext): Promise<TaskResult> {
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
-    if (!info.video) throw new Error("Diese Datei enthält keine Videospur.");
+    if (!info.video) throw new Error(msg().errors.noVideoTrack);
     const t = threadArgs();
-    ctx.onStage?.("Erzeuge animiertes GIF…");
+    ctx.onStage?.(msg().tasks.creatingGif);
     const output = tempName("gif");
     await ffmpegEngine.exec(
       ffmpeg,
@@ -357,26 +366,26 @@ export async function convertVideoToGif(file: File, type: MediaType, options: Gi
       { duration: info.duration, onProgress: (ratio) => ctx.onProgress?.(ratio), signal: ctx.signal },
     );
     const blob = await readOutput(ffmpeg, output, "image/gif");
-    const note = info.duration && info.duration > 20 ? "Tipp: Lange GIFs werden sehr groß – kürze das Video vorher mit dem Cutter." : undefined;
-    return { blob, name: outputName(file.name, "gif"), details: [`${options.width} px`, `${options.fps} fps`], note };
+    const note = info.duration && info.duration > 20 ? msg().notes.gifLong : undefined;
+    return { blob, name: outputName(file.name, "gif"), details: [msg().details.px(options.width), msg().details.fps(options.fps)], note };
   });
 }
 
 export async function convertGifToMp4(file: File, type: MediaType, ctx: TaskContext): Promise<TaskResult> {
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
     const t = threadArgs();
-    ctx.onStage?.("Wandle GIF in MP4 um…");
+    ctx.onStage?.(msg().tasks.gifToMp4);
     const output = tempName("mp4");
     await ffmpegEngine.exec(
       ffmpeg,
       [
         ...t.global, "-i", input, "-vf", scaleFilter(null), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-pix_fmt", "yuv420p", ...t.encode, "-an", "-movflags", "+faststart", output,
+        "-pix_fmt", "yuv420p", ...t.encode, "-an", "-map_metadata", "-1", "-movflags", "+faststart", output,
       ],
       { duration: info.duration, onProgress: (ratio) => ctx.onProgress?.(ratio), signal: ctx.signal },
     );
     const blob = await readOutput(ffmpeg, output, "video/mp4");
-    return { blob, name: outputName(file.name, "mp4"), details: ["H.264", "Ideal für Discord, WhatsApp & Web"] };
+    return { blob, name: outputName(file.name, "mp4"), details: [msg().details.h264, msg().details.gifMp4] };
   });
 }
 
@@ -433,17 +442,17 @@ export async function trimMedia(
     if (copy && container) {
       ext = container.ext;
       mime = container.mime;
-      ctx.onStage?.("Schneide verlustfrei…");
+      ctx.onStage?.(msg().tasks.trimCopy);
       args = [...seek, "-i", input, "-t", duration.toFixed(3), "-map", "0:v:0?", "-map", "0:a?", "-c", "copy"];
       const movFamily = ["mp4", "m4v", "mov", "m4a", "3gp"].includes(ext);
       if (movFamily) {
         // MP4/MOV: the frames between the previous keyframe and the start are hidden with an edit list,
         // so players start exactly at the selected time – still without re-encoding.
         args.push("-movflags", "+faststart");
-        details = ["Verlustfrei (Stream-Copy)", isAudio ? "Ton 1:1 übernommen" : "Exakter Start per Edit-List"];
+        details = [msg().details.lossless, isAudio ? msg().details.audioCopied : msg().details.exactStart];
       } else {
         args.push("-avoid_negative_ts", "make_zero");
-        details = ["Verlustfrei (Stream-Copy)", isAudio ? "Ton 1:1 übernommen" : "Schnitt am nächstgelegenen Keyframe"];
+        details = [msg().details.lossless, isAudio ? msg().details.audioCopied : msg().details.keyframeCut];
       }
     } else if (isAudio) {
       const audioTargets: Record<string, { ext: string; mime: string; codec: string[] }> = {
@@ -454,30 +463,30 @@ export async function trimMedia(
       const target = audioTargets[type.format] ?? { ext: "m4a", mime: "audio/mp4", codec: ["-c:a", "aac", "-b:a", "192k"] };
       ext = target.ext;
       mime = target.mime;
-      ctx.onStage?.("Schneide Audio sample-genau…");
+      ctx.onStage?.(msg().tasks.trimAudio);
       args = [...seek, "-i", input, "-t", duration.toFixed(3), "-map", "0:a:0", "-vn", ...target.codec];
-      details = ["Sample-genau neu kodiert", FORMATS[type.format]?.label ?? ext.toUpperCase()];
+      details = [msg().details.sampleAccurate, FORMATS[type.format]?.label ?? ext.toUpperCase()];
     } else {
       ext = "mp4";
       mime = "video/mp4";
-      ctx.onStage?.("Schneide framegenau (Neukodierung)…");
+      ctx.onStage?.(msg().tasks.trimPrecise);
       args = [
         ...t.global, ...t.decode, ...seek, "-i", input, "-t", duration.toFixed(3), "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", scaleFilter(null), "-c:v", "libx264", "-preset", SPEED_PRESETS[speed].x264, "-crf", "20", "-pix_fmt", "yuv420p",
         ...t.encode, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
       ];
-      details = ["Framegenau", "H.264 / AAC, CRF 20"];
+      details = [msg().details.frameAccurate, msg().details.crf20];
     }
     const output = tempName(ext);
-    args.push(output);
+    args.push(...privacyArgs(type), output);
     await ffmpegEngine.exec(ffmpeg, args, {
       duration,
       onProgress: (ratio) => ctx.onProgress?.(ratio),
       signal: ctx.signal,
     });
     const blob = await readOutput(ffmpeg, output, mime);
-    const label = `${options.start.toFixed(1).replace(".", ",")}s-${options.end.toFixed(1).replace(".", ",")}s`;
-    const suffix = `schnitt-${label}${copy ? "" : isAudio ? "-genau" : "-framegenau"}`;
+    const label = `${options.start.toFixed(1)}s-${options.end.toFixed(1)}s`;
+    const suffix = `trim-${label}${copy ? "" : "-precise"}`;
     return { blob, name: outputName(file.name, ext, suffix), details };
   });
 }
@@ -491,7 +500,7 @@ export async function stripMediaMetadata(file: File, type: MediaType, ctx: TaskC
   const container = COPY_CONTAINERS[type.format] ?? (type.kind === "audio" ? COPY_CONTAINERS.m4a : COPY_CONTAINERS.mkv);
   return withMedia(file, type, ctx, async (ffmpeg, input, info) => {
     const before = mediaTagFindings(info.tags);
-    ctx.onStage?.("Entferne Metadaten (ohne Neukodierung)…");
+    ctx.onStage?.(msg().tasks.stripping);
     const output = tempName(container.ext);
     const args = [
       "-i", input, "-map", "0:v?", "-map", "0:a?", "-map", "0:s?", "-dn", "-c", "copy",
@@ -505,7 +514,7 @@ export async function stripMediaMetadata(file: File, type: MediaType, ctx: TaskC
       onProgress: (ratio) => ctx.onProgress?.(ratio),
       signal: ctx.signal,
     });
-    ctx.onStage?.("Prüfe Ergebnis…");
+    ctx.onStage?.(msg().tasks.verifying);
     let remaining: MetadataFinding[] = [];
     try {
       remaining = mediaTagFindings((await probeInput(ffmpeg, output)).tags);
@@ -515,8 +524,8 @@ export async function stripMediaMetadata(file: File, type: MediaType, ctx: TaskC
     const blob = await readOutput(ffmpeg, output, container.mime);
     return {
       blob,
-      name: outputName(file.name, container.ext, "ohne-metadaten"),
-      details: ["Bild & Ton unverändert (Stream-Copy)"],
+      name: outputName(file.name, container.ext, "clean"),
+      details: [msg().details.streamCopy],
       removed: before,
       remaining,
     };
@@ -557,11 +566,11 @@ export async function extractThumbnails(
 
 /** Decodes images the browser cannot read (e.g. TIFF) into a PNG. */
 export async function rasterizeWithFFmpeg(file: File, type: MediaType, ctx: TaskContext = {}): Promise<Blob> {
-  ctx.onStage?.("Warte auf FFmpeg-Engine…");
+  ctx.onStage?.(msg().tasks.waitingEngine);
   return ffmpegEngine.run(
     (ffmpeg) =>
       withInputFile(ffmpeg, file, type.format, async (input) => {
-        ctx.onStage?.("Dekodiere Bild mit FFmpeg…");
+        ctx.onStage?.(msg().tasks.decodingFfmpeg);
         const output = tempName("png");
         await ffmpegEngine.exec(ffmpeg, ["-i", input, "-frames:v", "1", "-update", "1", output], { signal: ctx.signal });
         return readOutput(ffmpeg, output, "image/png");

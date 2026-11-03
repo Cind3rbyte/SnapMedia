@@ -10,6 +10,8 @@
  * Image data is never re-encoded by these functions, so quality is untouched.
  */
 
+import { msg } from "@/i18n/runtime";
+
 export type FindingCategory = "gps" | "device" | "datetime" | "author" | "software" | "other";
 
 export interface MetadataFinding {
@@ -60,9 +62,9 @@ class TiffReader {
   ) {
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const order = String.fromCharCode(bytes[start], bytes[start + 1]);
-    if (order !== "II" && order !== "MM") throw new Error("Kein TIFF-Header");
+    if (order !== "II" && order !== "MM") throw new Error("No TIFF header");
     this.little = order === "II";
-    if (this.u16(start + 2) !== 42) throw new Error("Ungültiger TIFF-Header");
+    if (this.u16(start + 2) !== 42) throw new Error("Invalid TIFF header");
   }
 
   private inRange(offset: number, length: number) {
@@ -208,7 +210,7 @@ function formatExifDate(value: string | null): string | null {
   if (!match) return value;
   const [, y, mo, d, h, mi, s] = match;
   if (y === "0000") return null;
-  return `${d}.${mo}.${y}, ${h}:${mi}:${s}`;
+  return msg().findings.date(y, mo, d, h, mi, s);
 }
 
 function gpsCoordinate(value: TagValue | undefined, ref: TagValue | undefined): number | null {
@@ -223,13 +225,12 @@ function gpsCoordinate(value: TagValue | undefined, ref: TagValue | undefined): 
 }
 
 function formatLatLon(lat: number, lon: number): string {
-  const latText = `${Math.abs(lat).toFixed(5)}° ${lat >= 0 ? "N" : "S"}`;
-  const lonText = `${Math.abs(lon).toFixed(5)}° ${lon >= 0 ? "O" : "W"}`;
-  return `${latText}, ${lonText}`;
+  return msg().findings.latLon(lat, lon);
 }
 
 function findingsFromTiff(tags: TiffTags, report: ImageMetadataReport) {
   const { ifd0, exif, gps } = tags;
+  const L = msg().findings;
   const add = (category: FindingCategory, label: string, value: string | null) => {
     if (value) report.findings.push({ category, label, value });
   };
@@ -238,38 +239,38 @@ function findingsFromTiff(tags: TiffTags, report: ImageMetadataReport) {
   const lon = gpsCoordinate(gps.get(0x0004), gps.get(0x0003));
   if (lat !== null && lon !== null && !(lat === 0 && lon === 0)) {
     report.hasGps = true;
-    add("gps", "GPS-Position", formatLatLon(lat, lon));
+    add("gps", L.gpsPosition, formatLatLon(lat, lon));
   } else if (gps.size > 1) {
     report.hasGps = true;
-    add("gps", "GPS-Daten", `${gps.size} GPS-Felder`);
+    add("gps", L.gpsData, L.gpsFields(gps.size));
   }
   const altitude = gps.get(0x0006);
   if (typeof altitude === "number" && altitude > 0) {
-    add("gps", "Höhe", `${altitude.toFixed(1)} m${gps.get(0x0005) === 1 ? " unter NN" : ""}`);
+    add("gps", L.altitude, L.meters(altitude.toFixed(1), gps.get(0x0005) === 1));
   }
 
   const make = asText(ifd0.get(0x010f));
   const model = asText(ifd0.get(0x0110));
   if (make || model) {
     const device = model && make && model.toLowerCase().startsWith(make.toLowerCase()) ? model : [make, model].filter(Boolean).join(" ");
-    add("device", "Kamera / Gerät", device);
+    add("device", L.device, device);
   }
   const lensModel = asText(exif.get(0xa434));
-  add("device", "Objektiv", lensModel);
-  add("device", "Seriennummer", asText(exif.get(0xa431)));
-  add("device", "Objektiv-Seriennummer", asText(exif.get(0xa435)));
-  add("author", "Besitzer", asText(exif.get(0xa430)));
-  add("author", "Urheber", asText(ifd0.get(0x013b)) ?? bytesToText(ifd0.get(0x9c9d), true));
-  add("author", "Copyright", asText(ifd0.get(0x8298)));
-  add("software", "Software", asText(ifd0.get(0x0131)));
-  add("other", "Bildbeschreibung", asText(ifd0.get(0x010e)));
-  add("other", "Kommentar", bytesToText(exif.get(0x9286)) ?? bytesToText(ifd0.get(0x9c9c), true));
-  add("other", "Eindeutige Bild-ID", asText(exif.get(0xa420)));
-  if (exif.has(0x927c)) add("device", "Hersteller-Rohdaten", "MakerNote vorhanden");
+  add("device", L.lens, lensModel);
+  add("device", L.serial, asText(exif.get(0xa431)));
+  add("device", L.lensSerial, asText(exif.get(0xa435)));
+  add("author", L.owner, asText(exif.get(0xa430)));
+  add("author", L.author, asText(ifd0.get(0x013b)) ?? bytesToText(ifd0.get(0x9c9d), true));
+  add("author", L.copyright, asText(ifd0.get(0x8298)));
+  add("software", L.software, asText(ifd0.get(0x0131)));
+  add("other", L.description, asText(ifd0.get(0x010e)));
+  add("other", L.comment, bytesToText(exif.get(0x9286)) ?? bytesToText(ifd0.get(0x9c9c), true));
+  add("other", L.imageId, asText(exif.get(0xa420)));
+  if (exif.has(0x927c)) add("device", L.makerNote, L.makerNoteValue);
 
   const taken = formatExifDate(asText(exif.get(0x9003))) ?? formatExifDate(asText(ifd0.get(0x0132)));
   const offset = asText(exif.get(0x9011)) ?? asText(exif.get(0x9010));
-  add("datetime", "Aufnahmezeitpunkt", taken ? `${taken}${offset ? ` (UTC${offset})` : ""}` : null);
+  add("datetime", L.captureTime, taken ? `${taken}${offset ? L.utcOffset(offset) : ""}` : null);
 
   const orientation = ifd0.get(0x0112);
   if (typeof orientation === "number" && orientation >= 1 && orientation <= 8) report.orientation = orientation;
@@ -289,14 +290,14 @@ function scanXmp(xml: string, report: ImageMetadataReport) {
   const lon = read("exif:GPSLongitude");
   if (lat && lon) {
     report.hasGps = true;
-    report.findings.push({ category: "gps", label: "GPS-Position (XMP)", value: `${lat}, ${lon}` });
+    report.findings.push({ category: "gps", label: msg().findings.gpsPositionXmp, value: `${lat}, ${lon}` });
   }
   const pairs: Array<[FindingCategory, string, string]> = [
-    ["device", "Kamera (XMP)", "tiff:Model"],
-    ["software", "Software (XMP)", "xmp:CreatorTool"],
-    ["author", "Urheber (XMP)", "dc:creator"],
-    ["datetime", "Erstellt (XMP)", "xmp:CreateDate"],
-    ["other", "Ort (XMP)", "photoshop:City"],
+    ["device", msg().findings.xmpCamera, "tiff:Model"],
+    ["software", msg().findings.xmpSoftware, "xmp:CreatorTool"],
+    ["author", msg().findings.xmpAuthor, "dc:creator"],
+    ["datetime", msg().findings.xmpCreated, "xmp:CreateDate"],
+    ["other", msg().findings.xmpCity, "photoshop:City"],
   ];
   for (const [category, label, name] of pairs) {
     const value = read(name);
@@ -351,11 +352,11 @@ const XMP_EXT_SIGNATURE = "http://ns.adobe.com/xmp/extension/\0";
 
 /** Walks the JPEG header segments up to (excluding) the first SOS marker. */
 function jpegHeaderSegments(bytes: Uint8Array): { segments: JpegSegment[]; sosOffset: number } {
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error("Keine gültige JPEG-Datei.");
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error(msg().findings.errors.invalidJpeg);
   const segments: JpegSegment[] = [];
   let offset = 2;
   while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) throw new Error("Beschädigte JPEG-Struktur.");
+    if (bytes[offset] !== 0xff) throw new Error(msg().findings.errors.damagedJpeg);
     let marker = bytes[offset + 1];
     while (marker === 0xff && offset + 2 < bytes.length) {
       offset += 1; // fill bytes
@@ -368,11 +369,11 @@ function jpegHeaderSegments(bytes: Uint8Array): { segments: JpegSegment[]; sosOf
       continue;
     }
     const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
-    if (length < 2 || offset + 2 + length > bytes.length) throw new Error("Beschädigte JPEG-Struktur.");
+    if (length < 2 || offset + 2 + length > bytes.length) throw new Error(msg().findings.errors.damagedJpeg);
     segments.push({ marker, start: offset, dataStart: offset + 4, end: offset + 2 + length });
     offset += 2 + length;
   }
-  throw new Error("JPEG ohne Bilddaten.");
+  throw new Error(msg().findings.errors.jpegWithoutImage);
 }
 
 /** Finds the end (exclusive) of the primary image, i.e. right after its EOI marker. */
@@ -414,13 +415,13 @@ function inspectJpeg(bytes: Uint8Array, report: ImageMetadataReport) {
     } else if (marker === 0xfe) {
       report.hasComments = true;
       const text = new TextDecoder().decode(bytes.subarray(dataStart, end)).replace(/\u0000/g, "").trim();
-      if (text) report.findings.push({ category: "other", label: "JPEG-Kommentar", value: text.slice(0, 120) });
+      if (text) report.findings.push({ category: "other", label: msg().findings.jpegComment, value: text.slice(0, 120) });
     } else if (marker === 0xe2 && hasPrefix(bytes, dataStart, "ICC_PROFILE\0")) {
       report.hasIcc = true;
     }
   }
   if (report.hasIptc) {
-    report.findings.push({ category: "other", label: "IPTC-Daten", value: "Bildunterschrift, Ort oder Urheber möglich" });
+    report.findings.push({ category: "other", label: msg().findings.iptc, value: msg().findings.iptcValue });
   }
 }
 
@@ -510,7 +511,7 @@ interface PngChunk {
 }
 
 function pngChunks(bytes: Uint8Array): PngChunk[] {
-  if (!hasPrefix(bytes, 0, PNG_SIGNATURE)) throw new Error("Keine gültige PNG-Datei.");
+  if (!hasPrefix(bytes, 0, PNG_SIGNATURE)) throw new Error(msg().findings.errors.invalidPng);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const chunks: PngChunk[] = [];
   let offset = 8;
@@ -518,7 +519,7 @@ function pngChunks(bytes: Uint8Array): PngChunk[] {
     const length = view.getUint32(offset);
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
     const end = offset + 12 + length;
-    if (end > bytes.length) throw new Error("Beschädigte PNG-Struktur.");
+    if (end > bytes.length) throw new Error(msg().findings.errors.damagedPng);
     chunks.push({ type, start: offset, dataStart: offset + 8, length, end });
     offset = end;
     if (type === "IEND") break;
@@ -541,7 +542,7 @@ function inspectPng(bytes: Uint8Array, report: ImageMetadataReport) {
         continue;
       }
       report.hasComments = true;
-      let value = "(komprimiert)";
+      let value = msg().findings.compressedText;
       if (chunk.type === "tEXt") {
         value = new TextDecoder("latin1").decode(data.subarray(separator + 1));
       } else if (chunk.type === "iTXt" && data[separator + 1] === 0) {
@@ -552,15 +553,21 @@ function inspectPng(bytes: Uint8Array, report: ImageMetadataReport) {
       }
       const category: FindingCategory =
         /software|creator|tool/i.test(keyword) ? "software" : /author|artist|copyright/i.test(keyword) ? "author" : /time|date/i.test(keyword) ? "datetime" : "other";
-      report.findings.push({ category, label: `PNG-Text „${keyword || "?"}“`, value: value.trim().slice(0, 120) || "—" });
+      report.findings.push({ category, label: msg().findings.pngText(keyword || "?"), value: value.trim().slice(0, 120) || "—" });
     } else if (chunk.type === "tIME") {
       const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
       if (data.length >= 7) {
-        const pad = (n: number) => String(n).padStart(2, "0");
         report.findings.push({
           category: "datetime",
-          label: "Letzte Änderung (PNG)",
-          value: `${pad(data[3])}.${pad(data[2])}.${view.getUint16(0)}, ${pad(data[4])}:${pad(data[5])}:${pad(data[6])}`,
+          label: msg().findings.pngTime,
+          value: msg().findings.date(
+            String(view.getUint16(0)),
+            String(data[2]),
+            String(data[3]),
+            String(data[4]),
+            String(data[5]),
+            String(data[6]),
+          ),
         });
       }
     } else if (chunk.type === "acTL") {
@@ -593,7 +600,7 @@ interface RiffChunk {
 }
 
 function webpChunks(bytes: Uint8Array): RiffChunk[] {
-  if (!hasPrefix(bytes, 0, "RIFF") || !hasPrefix(bytes, 8, "WEBP")) throw new Error("Keine gültige WebP-Datei.");
+  if (!hasPrefix(bytes, 0, "RIFF") || !hasPrefix(bytes, 8, "WEBP")) throw new Error(msg().findings.errors.invalidWebp);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const riffEnd = Math.min(bytes.length, 8 + view.getUint32(4, true));
   const chunks: RiffChunk[] = [];
@@ -658,11 +665,11 @@ function skipSubBlocks(bytes: Uint8Array, offset: number): number {
     if (size === 0) return offset;
     offset += size;
   }
-  throw new Error("Beschädigte GIF-Struktur.");
+  throw new Error(msg().findings.errors.damagedGif);
 }
 
 function gifBlocks(bytes: Uint8Array): { headerEnd: number; blocks: GifBlock[] } {
-  if (!hasPrefix(bytes, 0, "GIF8")) throw new Error("Keine gültige GIF-Datei.");
+  if (!hasPrefix(bytes, 0, "GIF8")) throw new Error(msg().findings.errors.invalidGif);
   const packed = bytes[10];
   let offset = 13;
   if (packed & 0x80) offset += 3 * 2 ** ((packed & 0x07) + 1);
@@ -719,7 +726,7 @@ function inspectGif(bytes: Uint8Array, report: ImageMetadataReport) {
     if (block.kind !== "extension") continue;
     if (block.label === 0xfe) {
       report.hasComments = true;
-      report.findings.push({ category: "other", label: "GIF-Kommentar", value: "Kommentarblock vorhanden" });
+      report.findings.push({ category: "other", label: msg().findings.gifComment, value: msg().findings.gifCommentValue });
     } else if (block.label === 0xff && block.appId) {
       if (block.appId.startsWith("XMP Data")) {
         // Proper sub-block reassembly first, raw bytes second (Adobe writes XMP "raw" with a magic trailer).
@@ -728,7 +735,7 @@ function inspectGif(bytes: Uint8Array, report: ImageMetadataReport) {
       } else if (block.appId.startsWith("ICCRGBG1")) {
         report.hasIcc = true;
       } else if (!GIF_KEEP_APPS.includes(block.appId)) {
-        report.findings.push({ category: "software", label: "Programm-Daten", value: block.appId.trim() });
+        report.findings.push({ category: "software", label: msg().findings.appData, value: block.appId.trim() });
       }
     }
   }
@@ -848,7 +855,7 @@ export function stripImageMetadata(bytes: Uint8Array, format: string, options: S
     case "gif":
       return stripGif(bytes, options);
     default:
-      throw new Error(`Verlustfreies Entfernen wird für ${format.toUpperCase()} nicht unterstützt.`);
+      throw new Error(msg().findings.errors.unsupported(format.toUpperCase()));
   }
 }
 

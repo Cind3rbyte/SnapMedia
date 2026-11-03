@@ -76,9 +76,10 @@ interface CheckboxFieldProps {
   description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  testId?: string;
 }
 
-export function CheckboxField({ label, description, checked, onChange }: CheckboxFieldProps) {
+export function CheckboxField({ label, description, checked, onChange, testId }: CheckboxFieldProps) {
   const id = useId();
   return (
     <div className="flex items-start gap-3">
@@ -88,6 +89,7 @@ export function CheckboxField({ label, description, checked, onChange }: Checkbo
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="mt-0.5 size-4 rounded border-border accent-[var(--primary)]"
+        data-testid={testId}
       />
       <label htmlFor={id} className="text-sm">
         <span className="font-medium">{label}</span>

@@ -32,7 +32,7 @@ function packageRoot(name) {
 
 function copyIfChanged(from, to) {
   if (!existsSync(from)) {
-    throw new Error(`Quelldatei fehlt: ${from}`);
+    throw new Error(`Source file missing: ${from}`);
   }
   mkdirSync(dirname(to), { recursive: true });
   if (existsSync(to)) {
@@ -73,7 +73,7 @@ try {
   for (const job of jobs) {
     const dir = packageRoot(job.pkg);
     if (!dir) {
-      throw new Error(`Paket ${job.pkg} ist nicht installiert. Bitte "npm install" ausführen.`);
+      throw new Error(`Package ${job.pkg} is not installed. Please run "npm install".`);
     }
     versions[job.pkg] = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
     for (const [from, to] of job.files) {
@@ -84,12 +84,12 @@ try {
   // Exact file sizes let the app show real download percentages even when the server compresses the response.
   writeFileSync(join(publicDir, "ffmpeg", "manifest.json"), `${JSON.stringify({ versions, sizes }, null, 2)}\n`);
   console.log(
-    `[snapmedia] WebAssembly-Engines bereit (${copied} Datei(en) aktualisiert): ` +
+    `[snapmedia] WebAssembly engines ready (${copied} file(s) updated): ` +
       Object.entries(versions)
         .map(([name, version]) => `${name}@${version}`)
         .join(", "),
   );
 } catch (error) {
-  console.error(`[snapmedia] Konnte WebAssembly-Engines nicht kopieren: ${error.message}`);
+  console.error(`[snapmedia] Could not copy the WebAssembly engines: ${error.message}`);
   process.exit(1);
 }

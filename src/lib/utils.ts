@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { msg } from "@/i18n/runtime";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -7,13 +8,18 @@ export function cn(...inputs: ClassValue[]) {
 
 const byteUnits = ["B", "KB", "MB", "GB", "TB"];
 
-/** Formats a byte count with decimal units (1 MB = 1.000.000 Bytes), like file managers and Discord do. */
+/** Formats a byte count with decimal units (1 MB = 1,000,000 bytes), like file managers and Discord do. */
 export function formatBytes(bytes: number, fractionDigits = 1): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const exponent = Math.min(Math.floor(Math.log10(bytes) / 3), byteUnits.length - 1);
   const value = bytes / 1000 ** exponent;
   const digits = exponent === 0 ? 0 : value >= 100 ? 0 : fractionDigits;
-  return `${value.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 })} ${byteUnits[exponent]}`;
+  return `${formatNumber(value, digits)} ${byteUnits[exponent]}`;
+}
+
+/** Number with the decimal separator of the active UI language (1.5 / 1,5). */
+export function formatNumber(value: number, maximumFractionDigits = 0): string {
+  return value.toLocaleString(msg().numberLocale, { maximumFractionDigits, minimumFractionDigits: 0 });
 }
 
 /** 83.25 -> "1:23.2" (or "1:02:03.0" for long media). */
@@ -28,14 +34,15 @@ export function formatTimecode(seconds: number, fractionDigits = 1): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-/** Human friendly duration: "2 Min. 05 Sek." / "12,4 Sek." */
+/** Human friendly duration in the active UI language: "12.4 s", "2 min 05 s" / "12,4 Sek.", "2 Min. 05 Sek." */
 export function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0 Sek.";
-  if (seconds < 60) return `${seconds.toLocaleString("de-DE", { maximumFractionDigits: 1 })} Sek.`;
+  const { units } = msg();
+  if (!Number.isFinite(seconds) || seconds <= 0) return units.seconds("0");
+  if (seconds < 60) return units.seconds(formatNumber(seconds, 1));
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
-  if (m < 60) return `${m} Min. ${String(s).padStart(2, "0")} Sek.`;
-  return `${Math.floor(m / 60)} Std. ${String(m % 60).padStart(2, "0")} Min.`;
+  if (m < 60) return units.minutesSeconds(m, String(s).padStart(2, "0"));
+  return units.hoursMinutes(Math.floor(m / 60), String(m % 60).padStart(2, "0"));
 }
 
 /**
@@ -74,12 +81,12 @@ export function baseName(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
-/** Builds an output filename like "urlaub-snapmedia.jpg" from "urlaub.HEIC". */
+/** Builds an output filename like "holiday-web.jpg" from "holiday.HEIC". */
 export function outputName(originalName: string, extension: string, suffix?: string): string {
   const cleanBase =
     baseName(originalName)
       .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_")
-      .trim() || "datei";
+      .trim() || "file";
   return `${cleanBase}${suffix ? `-${suffix}` : ""}.${extension}`;
 }
 
@@ -103,7 +110,7 @@ export function errorMessage(error: unknown): string {
 
 /** Thrown when the user cancels a running job. */
 export class CancelledError extends Error {
-  constructor(message = "Vorgang abgebrochen.") {
+  constructor(message = msg().errors.cancelled) {
     super(message);
     this.name = "CancelledError";
   }

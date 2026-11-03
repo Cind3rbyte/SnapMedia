@@ -1,3 +1,5 @@
+import { msg } from "@/i18n/runtime";
+
 export interface DownloadItem {
   blob: Blob;
   name: string;
@@ -18,7 +20,7 @@ async function loadSaveAs(): Promise<SaveAs> {
       : typeof fallback === "function"
         ? fallback
         : (fallback as { saveAs?: unknown } | undefined)?.saveAs;
-  if (typeof candidate !== "function") throw new Error("Download-Modul konnte nicht geladen werden.");
+  if (typeof candidate !== "function") throw new Error(msg().errors.downloadModule);
   return candidate as SaveAs;
 }
 
@@ -28,7 +30,7 @@ export async function downloadFile(item: DownloadItem) {
   saveAs(item.blob, item.name);
 }
 
-/** Ensures unique names inside an archive: "bild.jpg", "bild (2).jpg", … */
+/** Ensures unique names inside an archive: "photo.jpg", "photo (2).jpg", … */
 export function uniqueNames(names: string[]): string[] {
   const used = new Map<string, number>();
   return names.map((name) => {

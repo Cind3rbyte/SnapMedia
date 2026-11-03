@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/runtime";
 import type { MetadataFinding } from "../image/metadata";
 
 export interface VideoStreamInfo {
@@ -88,7 +89,7 @@ export function parseProbeJson(text: string): MediaInfo {
     const rotation = normalizeRotation(sideRotation ?? tagRotation ?? 0);
     const swap = rotation === 90 || rotation === 270;
     video = {
-      codec: videoStream.codec_name ?? "unbekannt",
+      codec: videoStream.codec_name ?? "unknown",
       width: videoStream.width,
       height: videoStream.height,
       displayWidth: swap ? videoStream.height : videoStream.width,
@@ -102,7 +103,7 @@ export function parseProbeJson(text: string): MediaInfo {
 
   const audio: AudioStreamInfo | null = audioStream
     ? {
-        codec: audioStream.codec_name ?? "unbekannt",
+        codec: audioStream.codec_name ?? "unknown",
         sampleRate: toNumber(audioStream.sample_rate),
         channels: audioStream.channels ?? null,
         bitrate: toNumber(audioStream.bit_rate),
@@ -150,7 +151,7 @@ export function parseFFmpegInfoLog(log: string[]): MediaInfo {
       const fps = /([\d.]+)\s*fps/.exec(videoLine) ?? /([\d.]+)\s*tbr/.exec(videoLine);
       const kbps = /(\d+)\s*kb\/s/.exec(videoLine);
       video = {
-        codec: /Video:\s*([\w-]+)/.exec(videoLine)?.[1] ?? "unbekannt",
+        codec: /Video:\s*([\w-]+)/.exec(videoLine)?.[1] ?? "unknown",
         width,
         height,
         displayWidth: swap ? height : width,
@@ -165,7 +166,7 @@ export function parseFFmpegInfoLog(log: string[]): MediaInfo {
   const audioLine = audioLines[0];
   const audio: AudioStreamInfo | null = audioLine
     ? {
-        codec: /Audio:\s*([\w-]+)/.exec(audioLine)?.[1] ?? "unbekannt",
+        codec: /Audio:\s*([\w-]+)/.exec(audioLine)?.[1] ?? "unknown",
         sampleRate: Number(/(\d+)\s*Hz/.exec(audioLine)?.[1]) || null,
         channels: /mono/.test(audioLine) ? 1 : /stereo/.test(audioLine) ? 2 : null,
         bitrate: Number(/(\d+)\s*kb\/s/.exec(audioLine)?.[1]) * 1000 || null,
@@ -193,28 +194,31 @@ export function parseFFmpegInfoLog(log: string[]): MediaInfo {
   };
 }
 
-const TAG_LABELS: Array<{ test: RegExp; category: MetadataFinding["category"]; label: string }> = [
-  { test: /location|iso6709|gps|xyz/, category: "gps", label: "GPS-Position" },
-  { test: /(^|\.)(make|model)$|com\.apple\.quicktime\.(make|model)|android\.manufacturer|android\.model/, category: "device", label: "Gerät" },
-  { test: /software|encoder|encoded_by|handler|com\.apple\.quicktime\.software|android\.version/, category: "software", label: "Software" },
-  { test: /creation_time|date|com\.apple\.quicktime\.creationdate/, category: "datetime", label: "Aufnahmezeitpunkt" },
-  { test: /artist|author|composer|album_artist|copyright|publisher/, category: "author", label: "Urheber" },
-  { test: /title|comment|description|album|genre|lyrics|synopsis|keywords/, category: "other", label: "Text" },
+type MediaLabel = "gps" | "device" | "software" | "datetime" | "author" | "text";
+
+const TAG_RULES: Array<{ test: RegExp; category: MetadataFinding["category"]; label: MediaLabel }> = [
+  { test: /location|iso6709|gps|xyz/, category: "gps", label: "gps" },
+  { test: /(^|\.)(make|model)$|com\.apple\.quicktime\.(make|model)|android\.manufacturer|android\.model/, category: "device", label: "device" },
+  { test: /software|encoder|encoded_by|handler|com\.apple\.quicktime\.software|android\.version/, category: "software", label: "software" },
+  { test: /creation_time|date|com\.apple\.quicktime\.creationdate/, category: "datetime", label: "datetime" },
+  { test: /artist|author|composer|album_artist|copyright|publisher/, category: "author", label: "author" },
+  { test: /title|comment|description|album|genre|lyrics|synopsis|keywords/, category: "other", label: "text" },
 ];
 
 /** Turns container tags into human-readable privacy findings. */
 export function mediaTagFindings(tags: Record<string, string>): MetadataFinding[] {
+  const labels = msg().findings.media;
   const findings: MetadataFinding[] = [];
   for (const [key, value] of Object.entries(tags)) {
     if (!value || /^(major_brand|minor_version|compatible_brands)$/.test(key)) continue;
-    const rule = TAG_LABELS.find((entry) => entry.test.test(key));
+    const rule = TAG_RULES.find((entry) => entry.test.test(key));
     const category = rule?.category ?? "other";
     let shown = value;
     if (category === "gps") {
       const iso = /^([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)/.exec(value);
       if (iso) shown = `${Number(iso[1]).toFixed(5)}, ${Number(iso[2]).toFixed(5)}`;
     }
-    findings.push({ category, label: `${rule?.label ?? "Metadaten"} (${key})`, value: shown.slice(0, 120) });
+    findings.push({ category, label: `${rule ? labels[rule.label] : labels.other} (${key})`, value: shown.slice(0, 120) });
   }
   return findings;
 }

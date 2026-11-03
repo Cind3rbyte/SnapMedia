@@ -5,12 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/field";
 import { Segmented } from "@/components/ui/segmented";
+import { useI18n } from "@/i18n/provider";
 import { extractThumbnails, probeMedia, type TrimOptions } from "@/lib/ffmpeg/tasks";
 import { clamp, errorMessage, formatTimecode, parseTimecode } from "@/lib/utils";
 import type { InputItem } from "../workspace/types";
 import { Timeline } from "./timeline";
 
 const THUMBNAIL_COUNT = 10;
+
+type TrimStatus = "loadingPreview" | "codecFallback" | "thumbnailsFfmpeg" | "thumbnails";
 
 function waitFor(target: HTMLMediaElement, event: string, timeout: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,7 +27,7 @@ function waitFor(target: HTMLMediaElement, event: string, timeout: number): Prom
     };
     const onError = () => {
       cleanup();
-      reject(new Error("Medium kann nicht dekodiert werden"));
+      reject(new Error("Media cannot be decoded"));
     };
     const cleanup = () => {
       clearTimeout(timer);
@@ -45,12 +48,12 @@ async function captureFrames(url: string, duration: number, count: number, signa
   video.src = url;
   try {
     await waitFor(video, "loadeddata", 10_000);
-    if (!video.videoWidth || !video.videoHeight) throw new Error("Kein Videobild");
+    if (!video.videoWidth || !video.videoHeight) throw new Error("No video frame");
     const canvas = document.createElement("canvas");
     canvas.height = 108;
     canvas.width = Math.max(1, Math.round((video.videoWidth / video.videoHeight) * canvas.height));
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas nicht verfügbar");
+    if (!ctx) throw new Error("Canvas unavailable");
     const frames: string[] = [];
     for (let index = 0; index < count; index += 1) {
       if (signal.cancelled) break;
@@ -90,6 +93,7 @@ interface TrimEditorProps {
 }
 
 function TrimEditor({ item, onExport }: TrimEditorProps) {
+  const { t } = useI18n();
   const isVideo = item.type.kind === "video";
   const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -102,7 +106,7 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
   const [previewOk, setPreviewOk] = useState<boolean | null>(null);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [waveform, setWaveform] = useState<number[] | null>(null);
-  const [status, setStatus] = useState<string | null>("Lade Vorschau…");
+  const [status, setStatus] = useState<TrimStatus | null>("loadingPreview");
   const [error, setError] = useState<string | null>(null);
   const [startText, setStartText] = useState("0:00.0");
   const [endText, setEndText] = useState("0:00.0");
@@ -119,17 +123,17 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
   const runFallback = useCallback(
     async (needDuration: boolean, cancel: { cancelled: boolean }) => {
       try {
-        setStatus("Browser kann diesen Codec nicht abspielen – analysiere mit FFmpeg…");
+        setStatus("codecFallback");
         let total = duration;
         if (needDuration || !total) {
           const info = await probeMedia(item.file, item.type);
           if (cancel.cancelled) return;
-          if (!info.duration) throw new Error("Die Länge der Datei konnte nicht ermittelt werden.");
+          if (!info.duration) throw new Error(t.errors.durationUnknown);
           total = info.duration;
           initDuration(total);
         }
         if (isVideo && total) {
-          setStatus("Erzeuge Vorschaubilder mit FFmpeg…");
+          setStatus("thumbnailsFfmpeg");
           const times = Array.from({ length: THUMBNAIL_COUNT }, (_, index) => ((index + 0.5) * total!) / THUMBNAIL_COUNT);
           const blobs = await extractThumbnails(item.file, item.type, times);
           if (cancel.cancelled) return;
@@ -145,7 +149,7 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
         }
       }
     },
-    [duration, initDuration, isVideo, item.file, item.type],
+    [duration, initDuration, isVideo, item.file, item.type, t],
   );
 
   useEffect(() => {
@@ -166,7 +170,7 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
         void runFallback(false, cancel);
         return;
       }
-      setStatus(isVideo ? "Erzeuge Vorschaubilder…" : null);
+      setStatus(isVideo ? "thumbnails" : null);
       try {
         if (isVideo) {
           const frames = await captureFrames(item.previewUrl!, value, THUMBNAIL_COUNT, cancel);
@@ -277,10 +281,10 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
   const canExport = duration !== null && length >= 0.1 && !error;
   const modeOptions = useMemo(
     () => [
-      { value: "copy" as const, label: "Schnell & verlustfrei", hint: "ohne Neukodierung" },
-      { value: "precise" as const, label: isVideo ? "Framegenau" : "Sample-genau", hint: "neu kodieren, langsamer" },
+      { value: "copy" as const, label: t.trim.copy, hint: t.trim.copyHint },
+      { value: "precise" as const, label: isVideo ? t.trim.precise : t.trim.preciseAudio, hint: t.trim.preciseHint },
     ],
-    [isVideo],
+    [isVideo, t],
   );
 
   return (
@@ -305,15 +309,14 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
         )}
         {previewOk === false && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6 text-center text-sm text-white/85">
-            Dein Browser kann diesen Codec nicht abspielen (z. B. HEVC). Der Schnitt funktioniert trotzdem – nutze die
-            Vorschaubilder und Zeitangaben.
+            {t.trim.unsupportedOverlay}
           </div>
         )}
       </div>
 
       {status && (
         <p className="inline-flex items-center gap-2 text-xs text-muted-foreground" role="status">
-          <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> {status}
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden /> {t.trim[status]}
         </p>
       )}
       {error && (
@@ -333,12 +336,13 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
             waveform={waveform}
             onChange={updateRange}
             onSeek={seek}
+            labels={{ start: t.trim.startHandle, end: t.trim.endHandle }}
           />
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" onClick={() => void togglePlay()} disabled={!previewOk} data-testid="trim-play">
               {playing ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
-              {playing ? "Pause" : "Auswahl abspielen"}
+              {playing ? t.trim.pause : t.trim.play}
             </Button>
             <Button
               variant={loop ? "secondary" : "ghost"}
@@ -347,14 +351,14 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
               aria-pressed={loop}
               disabled={!previewOk}
             >
-              <Repeat className="size-3.5" aria-hidden /> Schleife
+              <Repeat className="size-3.5" aria-hidden /> {t.trim.loop}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setMuted((value) => !value)} aria-pressed={muted} disabled={!previewOk}>
               {muted ? <VolumeX className="size-3.5" aria-hidden /> : <Volume2 className="size-3.5" aria-hidden />}
-              {muted ? "Stumm" : "Ton an"}
+              {muted ? t.trim.muted : t.trim.soundOn}
             </Button>
             <span className="ml-auto font-mono text-xs text-muted-foreground">
-              Position {formatTimecode(current)} / {formatTimecode(duration)}
+              {t.trim.position(formatTimecode(current), formatTimecode(duration))}
             </span>
           </div>
 
@@ -362,7 +366,8 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
             {(["start", "end"] as const).map((which) => (
               <div key={which} className="space-y-1.5">
                 <label htmlFor={`trim-${which}`} className="text-sm font-medium">
-                  {which === "start" ? "Start" : "Ende"} <span className="text-xs font-normal text-muted-foreground">(m:ss.s)</span>
+                  {which === "start" ? t.trim.start : t.trim.end}{" "}
+                  <span className="text-xs font-normal text-muted-foreground">{t.trim.timeFormat}</span>
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -379,20 +384,20 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
                     variant="secondary"
                     size="md"
                     className="px-3"
-                    title={`Aktuelle Position als ${which === "start" ? "Start" : "Ende"} setzen`}
+                    title={t.trim.setCurrentTitle(which === "start" ? t.trim.start : t.trim.end)}
                     onClick={() =>
                       which === "start"
                         ? updateRange(clamp(current, 0, range.end - 0.1), range.end)
                         : updateRange(range.start, clamp(current, range.start + 0.1, duration))
                     }
                   >
-                    Aktuelle Position
+                    {t.trim.setCurrent}
                   </Button>
                 </div>
               </div>
             ))}
             <div className="rounded-lg bg-primary-soft px-3 py-2 text-center text-sm">
-              <span className="block text-[11px] text-primary-soft-foreground">Länge</span>
+              <span className="block text-[11px] text-primary-soft-foreground">{t.trim.length}</span>
               <span className="font-mono font-semibold" data-testid="trim-length">
                 {formatTimecode(length)}
               </span>
@@ -400,16 +405,14 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
           </div>
 
           <Segmented
-            label="Schnitt-Modus"
+            label={t.trim.mode}
             value={precise ? "precise" : "copy"}
             onChange={(value) => setPrecise(value === "precise")}
             options={modeOptions}
           />
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            {precise
-              ? "Framegenau: Der Ausschnitt wird neu kodiert (H.264/AAC als MP4) und beginnt exakt am gewählten Bild."
-              : "Verlustfrei: Bild und Ton werden 1:1 kopiert – in Sekunden fertig, auch bei großen Dateien. MP4/MOV starten exakt am gewählten Zeitpunkt, MKV/WebM am nächstgelegenen Keyframe davor."}
+            {precise ? t.trim.infoPrecise : t.trim.infoCopy}
           </p>
 
           <Button
@@ -420,7 +423,7 @@ function TrimEditor({ item, onExport }: TrimEditorProps) {
             data-testid="start-trim"
           >
             <Scissors className="size-5" aria-hidden />
-            Ausschnitt exportieren ({formatTimecode(length)})
+            {t.trim.export(formatTimecode(length))}
           </Button>
         </>
       )}
@@ -434,16 +437,17 @@ interface TrimPanelProps {
 }
 
 export function TrimPanel({ items, onExport }: TrimPanelProps) {
+  const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const item = items.find((entry) => entry.id === selectedId) ?? items[0] ?? null;
 
-  if (!item) return <p className="text-sm text-muted-foreground">Füge ein Video oder eine Audiodatei hinzu.</p>;
+  if (!item) return <p className="text-sm text-muted-foreground">{t.trim.empty}</p>;
 
   return (
     <div className="space-y-4">
       {items.length > 1 && (
         <SelectField
-          label="Datei zum Schneiden"
+          label={t.trim.chooseFile}
           value={item.id}
           onChange={setSelectedId}
           options={items.map((entry) => ({ value: entry.id, label: entry.file.name }))}

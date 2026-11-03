@@ -4,14 +4,14 @@ export interface TaskContext {
   signal?: AbortSignal;
   /** Progress of the current stage, 0…1. */
   onProgress?: (ratio: number) => void;
-  /** Short status text, e.g. "Analysiere Datei…". */
+  /** Short status text, e.g. "Analyzing file…". */
   onStage?: (label: string) => void;
 }
 
 export interface TaskResult {
   blob: Blob;
   name: string;
-  /** Facts shown under the result, e.g. "1280 × 720", "Qualität 82 %". */
+  /** Facts shown under the result, e.g. "1280 × 720 px", "Quality 82 %". */
   details?: string[];
   /** Highlighted hint, e.g. that the original was kept unchanged. */
   note?: string;

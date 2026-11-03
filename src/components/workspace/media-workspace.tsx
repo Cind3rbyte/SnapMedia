@@ -13,6 +13,7 @@ import {
   type PrivacySettings,
 } from "@/components/tools/settings";
 import { TrimPanel } from "@/components/tools/trim-panel";
+import { useI18n } from "@/i18n/provider";
 import { ffmpegEngine } from "@/lib/ffmpeg/engine";
 import {
   compressAudio,
@@ -32,25 +33,16 @@ import { Dropzone } from "./dropzone";
 import { EngineStatus } from "./engine-status";
 import { FileList } from "./file-list";
 import { JobList } from "./job-list";
-import { TOOL_META, TOOL_ORDER } from "./tool-meta";
+import { TOOL_ORDER } from "./tool-meta";
 import { ToolTabs } from "./tool-tabs";
 import type { InputItem, JobRequest } from "./types";
 import { useJobs } from "./use-jobs";
 
 const PREVIEWABLE_IMAGES = new Set(["jpeg", "png", "webp", "gif", "bmp", "avif", "svg", "ico"]);
 
-const CONVERT_LABELS: Record<string, string> = {
-  jpeg: "JPG",
-  png: "PNG",
-  webp: "WebP",
-  mp3: "MP3",
-  aac: "AAC (M4A)",
-  wav: "WAV",
-  mp4: "MP4",
-  gif: "GIF",
-};
 
 export function MediaWorkspace() {
+  const { t } = useI18n();
   const [items, setItems] = useState<InputItem[]>([]);
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [compress, setCompress] = useState<CompressSettings>(DEFAULT_COMPRESS);
@@ -121,7 +113,7 @@ export function MediaWorkspace() {
   const startCompress = () => {
     const preset = COMPRESS_PRESETS.find((entry) => entry.id === compress.preset)!;
     const settings = compress;
-    const title = preset.id === "web" ? "Maximale Web-Kompression" : `Unter ${Math.round((preset.targetBytes ?? 0) / 1e6)} MB`;
+    const title = preset.id === "web" ? t.jobs.web : t.jobs.underMb(Math.round((preset.targetBytes ?? 0) / 1e6));
     const requests: JobRequest[] = toolItems.map((item) => ({
       item,
       tool: "compress",
@@ -145,7 +137,7 @@ export function MediaWorkspace() {
         return {
           item,
           tool: "convert",
-          title: `${item.type.label} → ${CONVERT_LABELS[target]}`,
+          title: t.jobs.convert(item.type.label, t.jobs.targets[target]),
           run: (ctx) =>
             convertImage(
               item.file,
@@ -166,7 +158,7 @@ export function MediaWorkspace() {
         return {
           item,
           tool: "convert",
-          title: `${item.type.label} → ${CONVERT_LABELS[target]}`,
+          title: t.jobs.convert(item.type.label, t.jobs.targets[target]),
           run: (ctx) => {
             if (target === "mp4") return convertVideoToMp4(item.file, item.type, compress.speed, ctx);
             if (target === "gif") {
@@ -180,7 +172,7 @@ export function MediaWorkspace() {
       return {
         item,
         tool: "convert",
-        title: `${item.type.label} → ${CONVERT_LABELS[target]}`,
+        title: t.jobs.convert(item.type.label, t.jobs.targets[target]),
         run: (ctx) => convertToAudio(item.file, item.type, target, settings.mp3Bitrate, ctx),
       };
     });
@@ -194,7 +186,7 @@ export function MediaWorkspace() {
       toolItems.map((item) => ({
         item,
         tool: "privacy" as const,
-        title: "Metadaten entfernen",
+        title: t.jobs.strip,
         run: (ctx) =>
           item.type.kind === "image" ? stripImage(item.file, item.type, keepIcc, ctx) : stripMediaMetadata(item.file, item.type, ctx),
       })),
@@ -207,7 +199,7 @@ export function MediaWorkspace() {
       {
         item,
         tool: "trim",
-        title: `${formatTimecode(options.start)} – ${formatTimecode(options.end)}${options.precise ? " (framegenau)" : ""}`,
+        title: t.jobs.trim(formatTimecode(options.start), formatTimecode(options.end), options.precise),
         run: (ctx) => trimMedia(item.file, item.type, options, compress.speed, ctx),
       },
     ]);
@@ -215,26 +207,26 @@ export function MediaWorkspace() {
   };
 
   return (
-    <div className="space-y-6" id="werkzeuge">
+    <div className="scroll-mt-24 space-y-6" id="tools">
       <Dropzone onFiles={onFiles} compact={items.length > 0} />
 
       {items.length > 0 && <FileList items={items} onRemove={removeItem} onClear={clearItems} />}
 
       {items.length > 0 && !tool && (
         <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-          Für diese Dateien gibt es leider kein passendes Werkzeug. Unterstützt werden gängige Bild-, Video- und Audioformate.
+          {t.tools.noTool}
         </p>
       )}
 
       {tool && (
-        <section className="card-surface space-y-5 rounded-2xl p-4 sm:p-6" aria-label="Werkzeuge">
+        <section className="card-surface space-y-5 rounded-2xl p-4 sm:p-6" aria-label={t.tools.panelAria}>
           <ToolTabs available={available} active={tool} onSelect={setActiveTool} />
           <EngineStatus />
           <div role="tabpanel" id={`panel-${tool}`} aria-labelledby={`tab-${tool}`} className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold tracking-tight">{TOOL_META[tool].label}</h2>
+              <h2 className="text-lg font-semibold tracking-tight">{t.tools[tool].label}</h2>
               <p className="text-sm text-muted-foreground">
-                {toolItems.length === 1 ? "1 passende Datei" : `${toolItems.length} passende Dateien`} · {TOOL_META[tool].description}
+                {t.tools.matching(toolItems.length)} · {t.tools[tool].description}
               </p>
             </div>
             {tool === "compress" && <CompressPanel items={toolItems} settings={compress} onChange={setCompress} onStart={startCompress} />}

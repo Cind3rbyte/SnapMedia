@@ -4,6 +4,7 @@ import { Calendar, LoaderCircle, MapPin, ShieldCheck, Smartphone, User } from "l
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CheckboxField } from "@/components/ui/field";
+import { useI18n } from "@/i18n/provider";
 import type { ImageMetadataReport } from "@/lib/image/metadata";
 import { inspectImage } from "@/lib/image/tasks";
 import { cn } from "@/lib/utils";
@@ -19,10 +20,15 @@ interface PrivacyPanelProps {
 
 type ScanState = Record<string, ImageMetadataReport | "loading" | "error">;
 
-function Badge({ active, icon: Icon, label }: { active: boolean; icon: typeof MapPin; label: string }) {
+function Badge({ active, icon: Icon, label, danger }: { active: boolean; icon: typeof MapPin; label: string; danger?: boolean }) {
   if (!active) return null;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium", label === "Standort" ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning")}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+        danger ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning",
+      )}
+    >
       <Icon className="size-3" aria-hidden />
       {label}
     </span>
@@ -30,6 +36,7 @@ function Badge({ active, icon: Icon, label }: { active: boolean; icon: typeof Ma
 }
 
 export function PrivacyPanel({ items, settings, onChange, onStart }: PrivacyPanelProps) {
+  const { t } = useI18n();
   const [scans, setScans] = useState<ScanState>({});
   const images = items.filter((item) => item.type.kind === "image");
   const media = items.filter((item) => item.type.kind !== "image");
@@ -58,10 +65,15 @@ export function PrivacyPanel({ items, settings, onChange, onStart }: PrivacyPane
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Fotos und Videos verraten oft mehr als gedacht: <strong className="text-foreground">GPS-Koordinaten</strong> deines
-        Zuhauses, <strong className="text-foreground">Kamera- & Handymodell</strong>, Seriennummern, Aufnahmezeit und Software.
-        SnapMedia entfernt diese Daten vor dem Teilen – bei JPG, PNG, WebP und GIF sogar{" "}
-        <strong className="text-foreground">ohne Qualitätsverlust</strong>.
+        {t.privacy.intro.map(([text, bold], index) =>
+          bold ? (
+            <strong key={index} className="text-foreground">
+              {text}
+            </strong>
+          ) : (
+            <span key={index}>{text}</span>
+          ),
+        )}
       </p>
 
       {images.length > 0 && (
@@ -78,22 +90,24 @@ export function PrivacyPanel({ items, settings, onChange, onStart }: PrivacyPane
                 <span className="min-w-0 flex-1 truncate" title={item.file.name}>
                   {item.file.name}
                 </span>
-                {scan === "loading" && <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-label="Wird geprüft" />}
-                {scan === "error" && <span className="text-xs text-muted-foreground">nicht lesbar</span>}
+                {scan === "loading" && (
+                  <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-label={t.privacy.checking} data-testid="scan-loading" />
+                )}
+                {scan === "error" && <span className="text-xs text-muted-foreground">{t.privacy.unreadable}</span>}
                 {report && (
                   <span className="flex flex-wrap gap-1">
-                    <Badge active={report.hasGps} icon={MapPin} label="Standort" />
-                    <Badge active={device} icon={Smartphone} label="Gerät" />
-                    <Badge active={date} icon={Calendar} label="Datum" />
-                    <Badge active={author} icon={User} label="Person" />
+                    <Badge active={report.hasGps} icon={MapPin} label={t.privacy.location} danger />
+                    <Badge active={device} icon={Smartphone} label={t.privacy.device} />
+                    <Badge active={date} icon={Calendar} label={t.privacy.date} />
+                    <Badge active={author} icon={User} label={t.privacy.person} />
                     {clean && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-success-soft px-1.5 py-0.5 text-[11px] font-medium text-success">
-                        <ShieldCheck className="size-3" aria-hidden /> sauber
+                        <ShieldCheck className="size-3" aria-hidden /> {t.privacy.clean}
                       </span>
                     )}
                     {!clean && !report.hasGps && !device && !date && !author && (
                       <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        {report.findings.length || 1} Metadaten-Einträge
+                        {t.privacy.entries(report.findings.length || 1)}
                       </span>
                     )}
                   </span>
@@ -104,23 +118,18 @@ export function PrivacyPanel({ items, settings, onChange, onStart }: PrivacyPane
         </ul>
       )}
 
-      {media.length > 0 && (
-        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-          {media.length} Video-/Audiodatei(en): Standort (z. B. aus iPhone-Videos), Gerät, Datum, Titel & Kommentare werden ohne
-          Neukodierung entfernt – Bild und Ton bleiben unverändert.
-        </p>
-      )}
+      {media.length > 0 && <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">{t.privacy.media(media.length)}</p>}
 
       <CheckboxField
-        label="Farbprofil (ICC) behalten"
-        description="Empfohlen: sorgt für korrekte Farben und enthält keine persönlichen Daten."
+        label={t.privacy.keepIcc}
+        description={t.privacy.keepIccHint}
         checked={settings.keepIcc}
         onChange={(keepIcc) => onChange({ ...settings, keepIcc })}
       />
 
       <Button size="lg" className="w-full sm:w-auto" onClick={onStart} data-testid="start-privacy">
         <ShieldCheck className="size-5" aria-hidden />
-        {items.length === 1 ? "Metadaten entfernen" : `Metadaten aus ${items.length} Dateien entfernen`}
+        {t.privacy.start(items.length)}
       </Button>
     </div>
   );

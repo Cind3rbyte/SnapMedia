@@ -2,6 +2,7 @@
 
 import { FileAudio, FileImage, FileVideo, Lock, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useI18n } from "@/i18n/provider";
 import { ACCEPT_ATTRIBUTE } from "@/lib/file-types";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ function filesFromDataTransfer(data: DataTransfer | null): File[] {
 }
 
 export function Dropzone({ onFiles, compact = false }: DropzoneProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [windowDrag, setWindowDrag] = useState(false);
@@ -101,7 +103,7 @@ export function Dropzone({ onFiles, compact = false }: DropzoneProps) {
       <div
         role="button"
         tabIndex={0}
-        aria-label="Dateien auswählen oder hierher ziehen"
+        aria-label={t.dropzone.aria}
         onClick={open}
         onKeyDown={onKeyDown}
         onDragOver={(event) => {
@@ -129,16 +131,17 @@ export function Dropzone({ onFiles, compact = false }: DropzoneProps) {
         </div>
         {compact ? (
           <p className="text-sm">
-            <span className="font-semibold text-foreground">Weitere Dateien hinzufügen</span>
-            <span className="text-muted-foreground"> – ziehen, klicken oder Strg+V</span>
+            <span className="font-semibold text-foreground">{t.dropzone.addMore}</span>
+            <span className="text-muted-foreground">{t.dropzone.addMoreHint}</span>
           </p>
         ) : (
           <>
             <div className="space-y-1.5">
-              <p className="text-xl font-semibold tracking-tight sm:text-2xl">Dateien hierher ziehen</p>
+              <p className="text-xl font-semibold tracking-tight sm:text-2xl">{t.dropzone.title}</p>
               <p className="text-sm text-muted-foreground">
-                oder <span className="font-medium text-primary underline-offset-4 group-hover:underline">vom Gerät auswählen</span> ·
-                Einfügen mit Strg+V
+                {t.dropzone.or}{" "}
+                <span className="font-medium text-primary underline-offset-4 group-hover:underline">{t.dropzone.choose}</span> ·{" "}
+                {t.dropzone.paste}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -153,7 +156,7 @@ export function Dropzone({ onFiles, compact = false }: DropzoneProps) {
               </span>
             </div>
             <p className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
-              <Lock className="size-3.5" aria-hidden /> Kein Upload – die Verarbeitung passiert auf deinem Gerät
+              <Lock className="size-3.5" aria-hidden /> {t.dropzone.noUpload}
             </p>
           </>
         )}
@@ -177,8 +180,8 @@ export function Dropzone({ onFiles, compact = false }: DropzoneProps) {
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="rounded-3xl border-2 border-dashed border-primary bg-card px-10 py-8 text-center shadow-2xl">
             <Upload className="mx-auto mb-3 size-10 text-primary" aria-hidden />
-            <p className="text-lg font-semibold">Loslassen zum Hinzufügen</p>
-            <p className="text-sm text-muted-foreground">Die Dateien bleiben auf deinem Gerät.</p>
+            <p className="text-lg font-semibold">{t.dropzone.overlayTitle}</p>
+            <p className="text-sm text-muted-foreground">{t.dropzone.overlayHint}</p>
           </div>
         </div>
       )}

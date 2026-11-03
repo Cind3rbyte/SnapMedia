@@ -12,6 +12,8 @@ interface TimelineProps {
   waveform: number[] | null;
   onChange: (start: number, end: number) => void;
   onSeek: (time: number) => void;
+  /** Accessible names of the two handles. */
+  labels: { start: string; end: string };
 }
 
 const MIN_LENGTH = 0.1;
@@ -21,7 +23,7 @@ type DragTarget = "start" | "end" | "range" | "seek";
  * Visual timeline with thumbnails, two draggable handles and a draggable selection.
  * Keyboard: ←/→ move a focused handle by 0.1 s, with Shift by 1 s.
  */
-export function Timeline({ duration, start, end, current, thumbnails, waveform, onChange, onSeek }: TimelineProps) {
+export function Timeline({ duration, start, end, current, thumbnails, waveform, onChange, onSeek, labels }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ target: DragTarget; offset: number; length: number } | null>(null);
 
@@ -148,7 +150,7 @@ export function Timeline({ duration, start, end, current, thumbnails, waveform, 
               key={which}
               role="slider"
               tabIndex={0}
-              aria-label={which === "start" ? "Startpunkt" : "Endpunkt"}
+              aria-label={which === "start" ? labels.start : labels.end}
               aria-valuemin={0}
               aria-valuemax={Math.round(duration * 10) / 10}
               aria-valuenow={Math.round(time * 10) / 10}

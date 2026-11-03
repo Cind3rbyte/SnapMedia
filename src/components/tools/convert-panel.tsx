@@ -4,6 +4,7 @@ import { FileImage, Film, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxField, RangeField, SelectField } from "@/components/ui/field";
 import { Segmented } from "@/components/ui/segmented";
+import { useI18n } from "@/i18n/provider";
 import type { AudioTarget, Mp3Bitrate } from "@/lib/ffmpeg/tasks";
 import type { InputItem } from "../workspace/types";
 import type { ConvertSettings, VideoConvertTarget } from "./settings";
@@ -15,13 +16,9 @@ interface ConvertPanelProps {
   onStart: () => void;
 }
 
-const AUDIO_OPTIONS: Array<{ value: AudioTarget; label: string; hint: string }> = [
-  { value: "mp3", label: "MP3", hint: "überall abspielbar" },
-  { value: "aac", label: "AAC", hint: ".m4a, verlustarm" },
-  { value: "wav", label: "WAV", hint: "unkomprimiert" },
-];
-
 export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPanelProps) {
+  const { t } = useI18n();
+  const c = t.convert;
   const images = items.filter((item) => item.type.kind === "image");
   const videos = items.filter((item) => item.type.kind === "video");
   const audios = items.filter((item) => item.type.kind === "audio");
@@ -31,31 +28,36 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
   const set = <K extends keyof ConvertSettings>(key: K, value: ConvertSettings[K]) => onChange({ ...settings, [key]: value });
   const showMp3Bitrate =
     (videos.length > 0 && settings.videoTarget === "mp3") || (audios.length > 0 && settings.audioTarget === "mp3");
+  const audioOptions: Array<{ value: AudioTarget; label: string; hint: string }> = [
+    { value: "mp3", label: "MP3", hint: c.hintEverywhere },
+    { value: "aac", label: "AAC", hint: c.hintM4a },
+    { value: "wav", label: "WAV", hint: c.hintUncompressed },
+  ];
 
   return (
     <div className="space-y-6">
       {images.length > 0 && (
-        <section className="space-y-4" aria-label="Bilder konvertieren">
+        <section className="space-y-4" aria-label={c.imagesAria} data-testid="convert-images">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <FileImage className="size-4 text-primary" aria-hidden /> Bilder ({images.length}) – HEIC, WebP, SVG, PNG, JPG …
+            <FileImage className="size-4 text-primary" aria-hidden /> {c.imagesHeading(images.length)}
           </h3>
           <div className="grid gap-4 md:grid-cols-2">
             <Segmented<ConvertSettings["imageTarget"]>
-              label="Zielformat"
+              label={c.target}
               value={settings.imageTarget}
               onChange={(value) => set("imageTarget", value)}
               options={[
-                { value: "jpeg", label: "JPG", hint: "Fotos" },
-                { value: "png", label: "PNG", hint: "verlustfrei" },
-                { value: "webp", label: "WebP", hint: "modern" },
+                { value: "jpeg", label: "JPG", hint: c.hintPhotos },
+                { value: "png", label: "PNG", hint: c.hintLossless },
+                { value: "webp", label: "WebP", hint: c.hintModern },
               ]}
             />
             <SelectField
-              label="Maximale Kantenlänge"
+              label={c.maxSize}
               value={settings.maxDimension}
               onChange={(value) => set("maxDimension", value)}
               options={[
-                { value: "0", label: "Originalgröße" },
+                { value: "0", label: c.originalSize },
                 { value: "3840", label: "3840 px (4K)" },
                 { value: "2560", label: "2560 px" },
                 { value: "1920", label: "1920 px (Full HD)" },
@@ -65,7 +67,7 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
             />
             {lossy && (
               <RangeField
-                label="Qualität"
+                label={c.quality}
                 value={settings.quality}
                 min={0.5}
                 max={1}
@@ -77,7 +79,7 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
             {settings.imageTarget === "jpeg" && (
               <div className="space-y-1.5">
                 <label htmlFor="jpg-background" className="text-sm font-medium">
-                  Hintergrund für Transparenz
+                  {c.background}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -93,75 +95,68 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
             )}
             {hasSvg && (
               <Segmented<ConvertSettings["svgScale"]>
-                label="SVG-Auflösung"
+                label={c.svgScale}
                 value={settings.svgScale}
                 onChange={(value) => set("svgScale", value)}
                 options={[
                   { value: "1", label: "1×" },
-                  { value: "2", label: "2×", hint: "Retina" },
-                  { value: "4", label: "4×", hint: "Druck" },
+                  { value: "2", label: "2×", hint: c.retina },
+                  { value: "4", label: "4×", hint: c.print },
                 ]}
               />
             )}
           </div>
           {hasGif && (
             <CheckboxField
-              label="Animierte GIFs als MP4 speichern"
-              description="Bis zu 90 % kleiner und flüssiger – perfekt für Discord & WhatsApp."
+              label={c.gifToMp4}
+              description={c.gifToMp4Hint}
               checked={settings.gifToMp4}
               onChange={(value) => set("gifToMp4", value)}
+              testId="gif-to-mp4"
             />
           )}
         </section>
       )}
 
       {videos.length > 0 && (
-        <section className="space-y-4" aria-label="Videos konvertieren">
+        <section className="space-y-4" aria-label={c.videosAria} data-testid="convert-videos">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <Film className="size-4 text-primary" aria-hidden /> Videos ({videos.length}) – MP4, MOV, MKV, WebM …
+            <Film className="size-4 text-primary" aria-hidden /> {c.videosHeading(videos.length)}
           </h3>
           <Segmented<VideoConvertTarget>
-            label="Zielformat"
+            label={c.target}
             value={settings.videoTarget}
             onChange={(value) => set("videoTarget", value)}
             options={[
-              { value: "mp3", label: "MP3", hint: "nur Ton" },
-              { value: "aac", label: "AAC", hint: "nur Ton" },
-              { value: "wav", label: "WAV", hint: "nur Ton" },
+              { value: "mp3", label: "MP3", hint: c.hintAudioOnly },
+              { value: "aac", label: "AAC", hint: c.hintAudioOnly },
+              { value: "wav", label: "WAV", hint: c.hintAudioOnly },
               { value: "mp4", label: "MP4", hint: "H.264" },
-              { value: "gif", label: "GIF", hint: "animiert" },
+              { value: "gif", label: "GIF", hint: c.hintAnimated },
             ]}
           />
-          {settings.videoTarget === "aac" && (
-            <p className="text-xs text-muted-foreground">
-              Ist die Tonspur bereits AAC (bei fast allen MP4/MOV-Videos), wird sie 1:1 ohne Qualitätsverlust übernommen.
-            </p>
-          )}
-          {settings.videoTarget === "mp4" && (
-            <p className="text-xs text-muted-foreground">
-              H.264-Videos werden blitzschnell und verlustfrei umverpackt (z. B. MOV → MP4), andere Codecs werden neu kodiert.
-            </p>
-          )}
+          {settings.videoTarget === "aac" && <p className="text-xs text-muted-foreground">{c.aacHint}</p>}
+          {settings.videoTarget === "mp4" && <p className="text-xs text-muted-foreground">{c.mp4Hint}</p>}
           {settings.videoTarget === "gif" && (
             <div className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="Bildrate"
+                label={c.frameRate}
                 value={settings.gifFps}
                 onChange={(value) => set("gifFps", value)}
                 options={[
-                  { value: "10", label: "10 fps – kleinste Datei" },
-                  { value: "12", label: "12 fps – empfohlen" },
-                  { value: "15", label: "15 fps" },
-                  { value: "20", label: "20 fps – flüssig" },
+                  { value: "10", label: c.fps10 },
+                  { value: "12", label: c.fps12 },
+                  { value: "15", label: c.fps15 },
+                  { value: "20", label: c.fps20 },
                 ]}
               />
               <SelectField
-                label="Breite"
+                label={c.width}
                 value={settings.gifWidth}
                 onChange={(value) => set("gifWidth", value)}
                 options={[
                   { value: "320", label: "320 px" },
-                  { value: "480", label: "480 px – empfohlen" },
+                  { value: "480", label: c.width480 },
                   { value: "640", label: "640 px" },
                   { value: "800", label: "800 px" },
                 ]}
@@ -172,27 +167,27 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
       )}
 
       {audios.length > 0 && (
-        <section className="space-y-4" aria-label="Audio konvertieren">
-          <h3 className="text-sm font-semibold">Audio ({audios.length})</h3>
+        <section className="space-y-4" aria-label={c.audioAria} data-testid="convert-audio">
+          <h3 className="text-sm font-semibold">{c.audioHeading(audios.length)}</h3>
           <Segmented<AudioTarget>
-            label="Zielformat"
+            label={c.target}
             value={settings.audioTarget}
             onChange={(value) => set("audioTarget", value)}
-            options={AUDIO_OPTIONS}
+            options={audioOptions}
           />
         </section>
       )}
 
       {showMp3Bitrate && (
         <SelectField
-          label="MP3-Bitrate"
+          label={c.mp3Bitrate}
           value={String(settings.mp3Bitrate) as `${Mp3Bitrate}`}
           onChange={(value) => set("mp3Bitrate", Number(value) as Mp3Bitrate)}
           options={[
-            { value: "320", label: "320 kbit/s – maximale Qualität" },
-            { value: "256", label: "256 kbit/s" },
-            { value: "192", label: "192 kbit/s – empfohlen" },
-            { value: "128", label: "128 kbit/s – kleine Datei" },
+            { value: "320", label: c.mp3_320 },
+            { value: "256", label: c.mp3_256 },
+            { value: "192", label: c.mp3_192 },
+            { value: "128", label: c.mp3_128 },
           ]}
           className="max-w-sm"
         />
@@ -200,7 +195,7 @@ export function ConvertPanel({ items, settings, onChange, onStart }: ConvertPane
 
       <Button size="lg" className="w-full sm:w-auto" onClick={onStart} data-testid="start-convert">
         <RefreshCw className="size-5" aria-hidden />
-        {items.length === 1 ? "Datei konvertieren" : `${items.length} Dateien konvertieren`}
+        {c.start(items.length)}
       </Button>
     </div>
   );
