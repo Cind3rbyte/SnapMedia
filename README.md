@@ -85,7 +85,7 @@ Klassische Online-Konverter laden deine Dateien auf ihre Server. Bei privaten Fo
 Voraussetzung: **Node.js ≥ 18.18** (empfohlen: 20 LTS oder neuer).
 
 ```bash
-git clone https://github.com/Cind3rbyte/snapmedia.git
+git clone https://github.com/Cind3rbyte/SnapMedia.git snapmedia
 ```
 
 ```bash
@@ -117,7 +117,7 @@ Weitere Befehle:
 
 SnapMedia ist ein Standard-Next.js-Projekt und braucht **null Konfiguration**:
 
-[![Mit Vercel deployen](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FCind3rbyte%2Fsnapmedia&project-name=snapmedia&repository-name=snapmedia)
+[![Mit Vercel deployen](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FCind3rbyte%2FSnapMedia&project-name=snapmedia&repository-name=snapmedia)
 
 1. Repository auf [vercel.com/new](https://vercel.com/new) importieren (oder den Button oben nutzen).
 2. Framework wird automatisch als **Next.js** erkannt → **Deploy**.
@@ -218,7 +218,7 @@ Optional per Umgebungsvariablen (z. B. in Vercel unter *Settings → Environment
 | Variable | Standard | Zweck |
 | --- | --- | --- |
 | `NEXT_PUBLIC_KOFI_URL` | `https://ko-fi.com/cind3rbyte` | Ziel des „☕ Buy Me a Coffee / Support on Ko-fi“-Buttons |
-| `NEXT_PUBLIC_GITHUB_URL` | `https://github.com/Cind3rbyte/snapmedia` | GitHub-Link in Header & Footer |
+| `NEXT_PUBLIC_GITHUB_URL` | `https://github.com/Cind3rbyte/SnapMedia` | GitHub-Link in Header & Footer |
 | `NEXT_PUBLIC_SITE_URL` | `https://snapmedia.vercel.app` | Basis-URL für Open-Graph-Metadaten |
 
 ## 🛠️ Fehlersuche
@@ -233,7 +233,7 @@ SnapMedia ist kostenlos, werbefrei und wird es bleiben. Wenn dir das Tool Zeit, 
 
 <a href="https://ko-fi.com/cind3rbyte"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-Support_on_Ko--fi-ff5e5b?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Buy Me a Coffee / Support on Ko-fi" /></a>
 
-Und kostenlos: ⭐ **Gib dem Repository einen Stern** – das hilft anderen, eine private Alternative zu finden. Bugs und Ideen gerne als [Issue](https://github.com/Cind3rbyte/snapmedia/issues).
+Und kostenlos: ⭐ **Gib dem Repository einen Stern** – das hilft anderen, eine private Alternative zu finden. Bugs und Ideen gerne als [Issue](https://github.com/Cind3rbyte/SnapMedia/issues).
 
 ## 📜 Lizenzen
 
